@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
+  {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
+  {% set route_count = overview.route_rows | length %}
+  <div class="admin-layout">
+    <main class="admin-content">
+      <header class="admin-header">
+        <div class="header-main">
+          <button class="admin-burger" id="adminBurger" aria-label="Open admin menu">
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+          <div class="sidebar-brand">
+            <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+            <div>
+              <p class="brand-name">Gajoda Transportation Services</p>
+              <p class="brand-sub">Admin Control</p>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
+          <a href="{{ url_for('logout') }}" class="solid-button">Logout</a>
+        </div>
+      </header>
+    </main>
+
+    <div class="admin-menu-overlay" id="adminMenuOverlay">
+      <aside class="admin-sidebar">
+        <div class="sidebar-brand">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Admin Control</p>
+          </div>
+        </div>
+
+        <div class="sidebar-topbar">
+          <strong>Menu</strong>
+          <button class="menu-close" id="adminMenuClose" aria-label="Close admin menu">×</button>
+        </div>
+
+        <nav class="sidebar-nav" id="adminTabNav">
+          <button type="button" class="tab-link active" data-target="overview">Overview</button>
+          <button type="button" class="tab-link" data-target="operations">Live Operations</button>
+          <button type="button" class="tab-link" data-target="analytics">Crowd Analytics</button>
+          <button type="button" class="tab-link" data-target="reports">Reports</button>
+          <button type="button" class="tab-link" data-target="logs">Logs</button>
+        </nav>
+
+        <div class="sidebar-summary">
+          <div>
+            <span>Active Buses</span>
+            <strong>{{ overview.active_bus_count }}</strong>
+          </div>
+          <div>
+            <span>High Crowd</span>
+            <strong>{{ overview.high_crowd_count }}</strong>
+          </div>
+          <div>
+            <span>Avg Crowd</span>
+            <strong>{{ overview.avg_crowd }}</strong>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
+          <a href="{{ url_for('logout') }}" class="solid-button">Logout</a>
+        </div>
+      </aside>
+    </div>
+
+    <main class="admin-content">
+      <section id="overview" class="content-section hero-section is-active">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Admin Control System</p>
+            <h1>Fleet analytics, crowd trends, and operational insights.</h1>
+            <p class="section-copy">This dashboard is organized by information type so dispatch, operations, and reporting can be reviewed without cramming everything into one screen.</p>
+          </div>
+        </div>
+
+        <div class="stats-grid dense">
+          <article class="stat-card">
+            <span>Passengers Today</span>
+            <strong>{{ overview.today_total }}</strong>
+            <small>Yesterday: {{ overview.yesterday_total }}</small>
+          </article>
+          <article class="stat-card">
+            <span>Trips Today</span>
+            <strong>{{ overview.trips_today }}</strong>
+            <small>{{ overview.records_today }} crowd updates</small>
+          </article>
+          <article class="stat-card">
+            <span>Peak Hour</span>
+            <strong>{{ overview.peak_hour_label }}</strong>
+            <small>{{ overview.peak_hour_value }} passengers</small>
+          </article>
+          <article class="stat-card">
+            <span>Routes Covered</span>
+            <strong>{{ route_count }}</strong>
+            <small>Tracked in analytics</small>
+          </article>
+          <article class="stat-card">
+            <span>Online Fleet</span>
+            <strong>{{ online_count }}</strong>
+            <small>{{ maintenance_count }} in maintenance</small>
+          </article>
+          <article class="stat-card">
+            <span>Low Crowd Trips</span>
+            <strong>{{ overview.low_count }}</strong>
+            <small>Comfortable load</small>
+          </article>
+          <article class="stat-card">
+            <span>Medium Crowd Trips</span>
+            <strong>{{ overview.medium_count }}</strong>
+            <small>Monitor closely</small>
+          </article>
+          <article class="stat-card">
+            <span>High Crowd Trips</span>
+            <strong>{{ overview.high_crowd_count }}</strong>
+            <small>Needs intervention</small>
+          </article>
+        </div>
+      </section>
+
+      <section id="operations" class="content-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Live Operations</p>
+            <h2>Current fleet movement and active coordinates</h2>
+          </div>
+        </div>
+
+        <div class="operations-grid">
+          <article class="panel panel-large">
+            <div class="panel-head">
+              <h3>Live Tracking Map</h3>
+              <span>Latest driver GPS and route trail</span>
+            </div>
+            <div id="adminMap"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Active Bus Coordinates</h3>
+              <span>Live positions now in the system</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bus</th>
+                  <th>Driver</th>
+                  <th>Route</th>
+                  <th>Crowd</th>
+                  <th>Location</th>
+                </tr>
+              </thead>
+              <tbody id="liveBusTableBody">
+                {% for bus in overview.live_bus_rows %}
+                <tr>
+                  <td>{{ bus.plate_number }}</td>
+                  <td>{{ bus.driver }}</td>
+                  <td>{{ bus.route_name }}</td>
+                  <td>{{ bus.occupancy }}/{{ bus.capacity }} · {{ bus.crowd_level }}</td>
+                  <td>{{ bus.location }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Fleet Status</h3>
+              <span>Bus health and live occupancy</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bus</th>
+                  <th>Route</th>
+                  <th>Status</th>
+                  <th>Occupancy</th>
+                  <th>Peak</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for bus in overview.fleet_rows %}
+                <tr>
+                  <td>{{ bus.plate_number }}</td>
+                  <td>{{ bus.route_name or 'No assigned route' }}</td>
+                  <td>{{ bus.status }} / {{ bus.trip_status }}</td>
+                  <td>{{ bus.occupancy }}/{{ bus.capacity }}</td>
+                  <td>{{ bus.peak_occupancy }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      <section id="analytics" class="content-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Crowd Analytics</p>
+            <h2>Passenger behavior, route demand, and decision support</h2>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>7-Day Passenger Trend</h3>
+              <span>Trip records aggregated by day</span>
+            </div>
+            <canvas id="dailyChart"></canvas>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Hourly Demand</h3>
+              <span>Today only</span>
+            </div>
+            <canvas id="hourlyChart"></canvas>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Route Load Comparison</h3>
+              <span>Total passengers per route</span>
+            </div>
+            <canvas id="routeChart"></canvas>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Passenger Type Mix</h3>
+              <span>7-day crowd composition</span>
+            </div>
+            <canvas id="mixChart"></canvas>
+          </article>
+        </div>
+
+        <div class="insights-grid">
+          {% for insight in overview.insights %}
+          <article class="insight-card tone-{{ insight.tone }}">
+            <h3>{{ insight.title }}</h3>
+            <p>{{ insight.body }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="reports" class="content-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Reports</p>
+            <h2>Structured route-level reporting</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Route Reports</h3>
+              <span>Passenger volume and load percentage</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Trips</th>
+                  <th>Passengers</th>
+                  <th>Avg Load</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in overview.route_rows %}
+                <tr>
+                  <td>{{ row.route_name }}</td>
+                  <td>{{ row.trip_count }}</td>
+                  <td>{{ row.passengers }}</td>
+                  <td>{{ row.avg_load_percent }}%</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      <section id="logs" class="content-section">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Logs</p>
+            <h2>Recent operational activity</h2>
+          </div>
+        </div>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h3>Recent Logs</h3>
+            <span>System activity for reports and monitoring</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Role</th>
+                <th>Action</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for log in overview.recent_logs %}
+              <tr>
+                <td>{{ log.created_at }}</td>
+                <td>{{ log.role or 'system' }}</td>
+                <td>{{ log.action }}</td>
+                <td>{{ log.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    const chartData = {{ overview.charts|tojson }};
+    const adminLiveEndpoint = "{{ url_for('api_admin_live') }}";
+    const adminBurger = document.getElementById('adminBurger');
+    const adminMenuOverlay = document.getElementById('adminMenuOverlay');
+    const adminMenuClose = document.getElementById('adminMenuClose');
+    const adminTabNav = document.getElementById('adminTabNav');
+    const adminSections = document.querySelectorAll('.content-section');
+
+    function markerColor(level) {
+      if (level === 'High') return '#dc2626';
+      if (level === 'Medium') return '#ea580c';
+      return '#16a34a';
+    }
+
+    function createBusIcon(level) {
+      const fill = markerColor(level);
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
+          <g fill="none" fill-rule="evenodd">
+            <path d="M21 3C11.6 3 6 6.8 6 13v12.5c0 2.2 1.8 4 4 4H11v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2h8v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2H32c2.2 0 4-1.8 4-4V13c0-6.2-5.6-10-15-10Z" fill="${fill}" stroke="#0f172a" stroke-width="1.5"/>
+            <rect x="10" y="10" width="22" height="8" rx="2.5" fill="#e0f2fe" stroke="#0f172a" stroke-width="1.2"/>
+            <path d="M10 22h22" stroke="#0f172a" stroke-width="1.4"/>
+            <circle cx="14" cy="28" r="3.2" fill="#111827"/>
+            <circle cx="28" cy="28" r="3.2" fill="#111827"/>
+          </g>
+        </svg>
+      `;
+
+      return L.icon({
+        iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21],
+        popupAnchor: [0, -18]
+      });
+    }
+
+    function showSection(sectionId) {
+      adminSections.forEach((section) => {
+        section.classList.toggle('is-active', section.id === sectionId);
+      });
+
+      document.querySelectorAll('.tab-link').forEach((button) => {
+        button.classList.toggle('active', button.dataset.target === sectionId);
+      });
+
+      if (adminMenuOverlay) {
+        adminMenuOverlay.classList.remove('open');
+      }
+
+      if (sectionId === 'operations') {
+        setTimeout(() => {
+          adminMap.invalidateSize();
+          renderAdminMap();
+        }, 120);
+      }
+    }
+
+    new Chart(document.getElementById('dailyChart'), {
+      type: 'line',
+      data: {
+        labels: chartData.daily_labels,
+        datasets: [{
+          label: 'Passengers',
+          data: chartData.daily_values,
+          borderColor: '#D60000',
+          backgroundColor: 'rgba(214, 0, 0, 0.12)',
+          fill: true,
+          tension: 0.35
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('hourlyChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.hourly_labels,
+        datasets: [{
+          label: 'Hourly passengers',
+          data: chartData.hourly_values,
+          backgroundColor: '#D60000',
+          borderRadius: 10
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('routeChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.route_labels,
+        datasets: [{
+          label: 'Route passengers',
+          data: chartData.route_values,
+          backgroundColor: ['#D60000', '#ef4444', '#f97316', '#991b1b'],
+          borderRadius: 10
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('mixChart'), {
+      type: 'doughnut',
+      data: {
+        labels: chartData.mix_labels,
+        datasets: [{
+          data: chartData.mix_values,
+          backgroundColor: ['#D60000', '#fb7185', '#f59e0b', '#374151']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    let liveBuses = chartData.live_buses || [];
+    const liveBusTableBody = document.getElementById('liveBusTableBody');
+    const adminMap = L.map('adminMap').setView([15.37, 120.94], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(adminMap);
+
+    let adminMapLayers = [];
+
+    function clearAdminMapLayers() {
+      adminMapLayers.forEach((layer) => adminMap.removeLayer(layer));
+      adminMapLayers = [];
+    }
+
+    function addAdminLayer(layer) {
+      layer.addTo(adminMap);
+      adminMapLayers.push(layer);
+      return layer;
+    }
+
+    function renderAdminMap() {
+      clearAdminMapLayers();
+
+      if (!liveBuses.length) {
+        return;
+      }
+
+      const bounds = [];
+      liveBuses.forEach((bus) => {
+        const coords = Array.isArray(bus.coords) ? bus.coords : [];
+        const history = Array.isArray(bus.history) ? bus.history : [];
+
+        if (coords.length) {
+          addAdminLayer(L.polyline(coords, {
+            color: bus.routeColor || '#D60000',
+            weight: 4,
+            opacity: 0.5
+          }));
+          bounds.push(...coords);
+        }
+
+        if (history.length > 1) {
+          addAdminLayer(L.polyline(history, {
+            color: bus.routeColor || '#D60000',
+            weight: 4,
+            opacity: 0.95,
+            dashArray: '8, 8'
+          }));
+          bounds.push(...history);
+        }
+
+        const marker = addAdminLayer(L.marker([bus.lat, bus.lng], {
+          icon: createBusIcon(bus.crowdLevel)
+        }));
+        marker.bindPopup(`
+          <strong>${bus.id}</strong><br>
+          ${bus.direction}<br>
+          ${bus.passengers}/${bus.capacity} passengers<br>
+          ${bus.driver}
+        `);
+        bounds.push([bus.lat, bus.lng]);
+      });
+
+      if (bounds.length) {
+        adminMap.fitBounds(bounds, { padding: [24, 24] });
+      }
+    }
+
+    function renderLiveBusTable(rows) {
+      if (!liveBusTableBody) {
+        return;
+      }
+
+      if (!rows.length) {
+        liveBusTableBody.innerHTML = '<tr><td colspan="5">No active buses right now.</td></tr>';
+        return;
+      }
+
+      liveBusTableBody.innerHTML = rows.map((bus) => `
+        <tr>
+          <td>${bus.plate_number}</td>
+          <td>${bus.driver}</td>
+          <td>${bus.route_name}</td>
+          <td>${bus.occupancy}/${bus.capacity} · ${bus.crowd_level}</td>
+          <td>${bus.location}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function refreshAdminLive() {
+      try {
+        const response = await fetch(adminLiveEndpoint, { cache: 'no-store' });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        liveBuses = Array.isArray(payload.live_buses) ? payload.live_buses : [];
+        renderLiveBusTable(Array.isArray(payload.live_bus_rows) ? payload.live_bus_rows : []);
+        renderAdminMap();
+      } catch (error) {
+        console.error('Admin live refresh failed', error);
+      }
+    }
+
+    if (adminBurger && adminMenuOverlay) {
+      adminBurger.addEventListener('click', () => adminMenuOverlay.classList.add('open'));
+    }
+
+    if (adminMenuClose && adminMenuOverlay) {
+      adminMenuClose.addEventListener('click', () => adminMenuOverlay.classList.remove('open'));
+      adminMenuOverlay.addEventListener('click', (event) => {
+        if (event.target === adminMenuOverlay) {
+          adminMenuOverlay.classList.remove('open');
+        }
+      });
+    }
+
+    if (adminTabNav) {
+      adminTabNav.addEventListener('click', (event) => {
+        const button = event.target.closest('.tab-link');
+        if (!button) {
+          return;
+        }
+        showSection(button.dataset.target);
+      });
+    }
+
+    renderAdminMap();
+    setInterval(refreshAdminLive, 5000);
+  </script>
+</body>
+</html>

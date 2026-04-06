@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+  <div class="driver-shell">
+    <header class="driver-topbar">
+      <div>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Driver Operations</p>
+          </div>
+        </div>
+        <p class="eyebrow">Driver Dashboard</p>
+        <h1>{{ overview.driver.full_name }}</h1>
+      </div>
+    </header>
+
+    <section class="driver-grid">
+      <article class="setup-panel">
+        <div class="panel-head">
+          <h2>Trip Control</h2>
+          <span>Start and end route service</span>
+        </div>
+
+        {% if overview.active_trip %}
+        <div class="trip-status live">
+          <strong>{{ overview.active_trip.plate_number }}</strong>
+          <span>{{ overview.active_trip.route_name }}</span>
+          <small>Started at {{ overview.active_trip.started_at }}</small>
+        </div>
+        <div class="status-strip">
+          <span class="status-chip active">Trip Active</span>
+          <span id="trackingStatus" class="status-chip neutral">Tracking is currently off</span>
+        </div>
+        <div class="button-row">
+          <button id="trackingBtn" class="primary tracking">Enable Live Tracking</button>
+          <button id="endTripBtn" class="primary danger">End Trip</button>
+        </div>
+        {% else %}
+        <form id="startTripForm" class="trip-form">
+          <label>
+            <span>Select Bus</span>
+            <select name="bus_id" required>
+              <option value="">Choose an online bus</option>
+              {% for bus in overview.available_buses %}
+              <option value="{{ bus.id }}">{{ bus.plate_number }} · {{ bus.capacity }} seats</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>Select Route</span>
+            <select name="route_id" required>
+              <option value="">Choose route</option>
+              {% for route in overview.routes %}
+              <option value="{{ route.id }}">{{ route.route_name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="status-strip">
+            <span class="status-chip neutral">No Active Trip</span>
+            <span class="status-chip neutral">Tracking unavailable until trip starts</span>
+          </div>
+          <div class="button-row">
+            <button id="startTripBtn" type="submit" class="primary">Start Trip</button>
+            <button id="endTripBtn" type="button" class="primary danger" disabled>End Trip</button>
+          </div>
+        </form>
+        {% endif %}
+
+        <div class="metric-grid">
+          <article class="metric-card">
+            <span>Occupancy</span>
+            <strong>{{ overview.trip_metrics.occupancy }}/{{ overview.trip_metrics.capacity }}</strong>
+            <small>{{ overview.trip_metrics.crowd_level }} crowd level</small>
+          </article>
+          <article class="metric-card">
+            <span>Next Stop</span>
+            <strong>{{ overview.trip_metrics.next_stop }}</strong>
+            <small>Latest conductor update or route endpoint</small>
+          </article>
+          <article class="metric-card">
+            <span>Trip Duration</span>
+            <strong id="tripDuration">{{ overview.trip_metrics.trip_duration }}</strong>
+            <small>Live elapsed time</small>
+          </article>
+          <article class="metric-card">
+            <span>Crowd Updates</span>
+            <strong>{{ overview.trip_metrics.updates_count }}</strong>
+            <small>Records received</small>
+          </article>
+        </div>
+      </article>
+
+      <article class="map-panel">
+        <div class="panel-head">
+          <h2>Route Map</h2>
+          <span>Trip visualization for the selected route</span>
+        </div>
+        <div id="driverMap"></div>
+      </article>
+    </section>
+
+    <div class="driver-footer-actions">
+      <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    const activeTrip = {{ overview.active_trip|tojson }};
+    const startTripForm = document.getElementById('startTripForm');
+    const endTripBtn = document.getElementById('endTripBtn');
+    const trackingBtn = document.getElementById('trackingBtn');
+    const trackingStatus = document.getElementById('trackingStatus');
+    let watchId = null;
+
+    if (startTripForm) {
+      startTripForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const formData = new FormData(startTripForm);
+        const response = await fetch('{{ url_for("start_trip") }}', {
+          method: 'POST',
+          body: formData
+        });
+        const result = await response.json();
+        if (result.success) {
+          sessionStorage.setItem('codexmbs_auto_track', '1');
+          window.location.reload();
+          return;
+        }
+        alert(result.error || 'Could not start trip.');
+      });
+    }
+
+    if (endTripBtn) {
+      endTripBtn.addEventListener('click', async () => {
+        if (watchId !== null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+        }
+        const response = await fetch('{{ url_for("end_trip") }}', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+          window.location.reload();
+          return;
+        }
+        alert(result.error || 'Could not end trip.');
+      });
+    }
+
+    const map = L.map('driverMap').setView([15.37, 120.94], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    function markerColor(level) {
+      if (level === 'High') return '#dc2626';
+      if (level === 'Medium') return '#ea580c';
+      return '#16a34a';
+    }
+
+    function createBusIcon(level) {
+      const fill = markerColor(level);
+      const svg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
+          <g fill="none" fill-rule="evenodd">
+            <path d="M21 3C11.6 3 6 6.8 6 13v12.5c0 2.2 1.8 4 4 4H11v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2h8v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2H32c2.2 0 4-1.8 4-4V13c0-6.2-5.6-10-15-10Z" fill="${fill}" stroke="#0f172a" stroke-width="1.5"/>
+            <rect x="10" y="10" width="22" height="8" rx="2.5" fill="#e0f2fe" stroke="#0f172a" stroke-width="1.2"/>
+            <path d="M10 22h22" stroke="#0f172a" stroke-width="1.4"/>
+            <circle cx="14" cy="28" r="3.2" fill="#111827"/>
+            <circle cx="28" cy="28" r="3.2" fill="#111827"/>
+          </g>
+        </svg>
+      `;
+
+      return L.icon({
+        iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21],
+        popupAnchor: [0, -18]
+      });
+    }
+
+    let liveMarker = null;
+
+    if (activeTrip && activeTrip.coords_json) {
+      const coords = JSON.parse(activeTrip.coords_json || '[]');
+      if (coords.length) {
+        const line = L.polyline(coords, {
+          color: activeTrip.route_color || '#1d4ed8',
+          weight: 5
+        }).addTo(map);
+        L.marker(coords[0]).addTo(map).bindPopup(activeTrip.start_point);
+        L.marker(coords[coords.length - 1]).addTo(map).bindPopup(activeTrip.end_point);
+        const initialPoint = [
+          activeTrip.last_latitude || coords[Math.max(coords.length - 2, 0)][0],
+          activeTrip.last_longitude || coords[Math.max(coords.length - 2, 0)][1]
+        ];
+        liveMarker = L.marker(initialPoint, {
+          icon: createBusIcon('{{ overview.trip_metrics.crowd_level }}')
+        }).addTo(map).bindPopup(activeTrip.plate_number);
+        map.fitBounds(line.getBounds(), { padding: [20, 20] });
+      }
+    }
+
+    if (activeTrip && activeTrip.started_at) {
+      const startTime = new Date(activeTrip.started_at.replace(' ', 'T'));
+      const durationNode = document.getElementById('tripDuration');
+      const updateDuration = () => {
+        const elapsed = Math.max(0, Date.now() - startTime.getTime());
+        const hours = String(Math.floor(elapsed / 3600000)).padStart(2, '0');
+        const minutes = String(Math.floor((elapsed % 3600000) / 60000)).padStart(2, '0');
+        const seconds = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+        if (durationNode) {
+          durationNode.textContent = `${hours}:${minutes}:${seconds}`;
+        }
+      };
+      updateDuration();
+      setInterval(updateDuration, 1000);
+    }
+
+    async function pushLocation(latitude, longitude) {
+      const response = await fetch('{{ url_for("driver_location") }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ latitude, longitude })
+      });
+      return response.json();
+    }
+
+    function setTrackingStatus(message, isError = false) {
+      if (!trackingStatus) return;
+      trackingStatus.textContent = message;
+      trackingStatus.classList.toggle('error', isError);
+      trackingStatus.classList.toggle('live', !isError && message.toLowerCase().includes('active'));
+    }
+
+    function startTracking() {
+      if (!activeTrip || !navigator.geolocation) {
+        setTrackingStatus('Geolocation is not supported on this device.', true);
+        return;
+      }
+
+      if (watchId !== null) {
+        setTrackingStatus('Live tracking is already running.');
+        return;
+      }
+
+      setTrackingStatus('Waiting for your current location...');
+      if (trackingBtn) {
+        trackingBtn.textContent = 'Tracking Enabled';
+        trackingBtn.disabled = true;
+      }
+
+      watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const latitude = position.coords.latitude;
+          const longitude = position.coords.longitude;
+
+          if (liveMarker) {
+            liveMarker.setLatLng([latitude, longitude]);
+          } else {
+            liveMarker = L.marker([latitude, longitude], {
+              icon: createBusIcon('{{ overview.trip_metrics.crowd_level }}')
+            }).addTo(map);
+          }
+
+          map.setView([latitude, longitude], 14);
+
+          try {
+            const result = await pushLocation(latitude, longitude);
+            if (result.success) {
+              setTrackingStatus(`Live tracking active. Last update: ${new Date().toLocaleTimeString()}`);
+            } else {
+              setTrackingStatus(result.error || 'Location update failed.', true);
+            }
+          } catch (error) {
+            setTrackingStatus('Location update failed. Check server connection.', true);
+          }
+        },
+        () => {
+          setTrackingStatus('Location permission denied or unavailable.', true);
+          if (trackingBtn) {
+            trackingBtn.textContent = 'Enable Live Tracking';
+            trackingBtn.disabled = false;
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 5000,
+          timeout: 10000
+        }
+      );
+    }
+
+    if (trackingBtn) {
+      trackingBtn.addEventListener('click', startTracking);
+    }
+
+    if (activeTrip && sessionStorage.getItem('codexmbs_auto_track') === '1') {
+      sessionStorage.removeItem('codexmbs_auto_track');
+      startTracking();
+    }
+  </script>
+</body>
+</html>

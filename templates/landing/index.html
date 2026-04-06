@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mini Bus Crowd Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+</head>
+<body>
+  <div class="landing-shell">
+    <header class="landing-topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menuToggle" aria-label="Open menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Commuter View</p>
+          </div>
+        </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="landing-hero commuter-focus">
+      <div class="location-card">
+        <span class="location-label">Your location</span>
+        <strong id="userLocationText">Detecting your location...</strong>
+        <p class="hero-lead">Open the map first, see where you are, then compare the nearest buses and their current crowd level.</p>
+        <div class="hero-stats">
+          <article>
+            <strong id="activeBusCount">{{ active_bus_count }}</strong>
+            <span>Active buses</span>
+          </article>
+          <article>
+            <strong id="avgCrowd">{{ avg_crowd }}</strong>
+            <span>Average crowd level</span>
+          </article>
+          <article>
+            <strong id="highCrowdCount">{{ high_count }}</strong>
+            <span>High crowd trips</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-main map-first">
+      <div class="map-panel priority-map">
+        <div class="panel-head">
+          <div>
+            <h2>Live Map</h2>
+            <span>Nearest bus and crowd status around your position</span>
+          </div>
+          <button class="ghost-action" id="locateMeBtn">Locate Me</button>
+        </div>
+        <div id="map"></div>
+      </div>
+
+      <aside class="list-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Available Buses</h2>
+            <span>Sort by nearest bus or capacity</span>
+          </div>
+          <select id="sortSelect" class="sort-select">
+            <option value="nearest">Nearest</option>
+            <option value="capacity_low">Lowest Capacity Load</option>
+            <option value="capacity_high">Highest Capacity Load</option>
+          </select>
+        </div>
+        <div id="busList" class="bus-list"></div>
+      </aside>
+    </section>
+
+    <footer class="landing-footer">
+      <div>
+        <strong>Gajoda Transportation Services</strong>
+        <p>Live commuter information with crowd analytics for daily minibus operations.</p>
+      </div>
+      <div class="footer-links">
+        <a href="{{ url_for('login') }}">Staff Login</a>
+        <a href="#map">Map</a>
+        <a href="#busList">Buses</a>
+      </div>
+    </footer>
+  </div>
+
+  <div class="menu-overlay" id="menuOverlay">
+    <div class="menu-panel">
+      <div class="menu-head">
+        <h3>Menu</h3>
+        <button class="menu-close" id="menuClose" aria-label="Close menu">×</button>
+      </div>
+      <nav class="menu-links">
+        <a href="{{ url_for('login') }}">Staff Login</a>
+        <a href="#map">Map View</a>
+        <a href="#busList">Available Buses</a>
+      </nav>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    window.liveBuses = {{ buses_json|safe }};
+    window.liveBusEndpoint = "{{ url_for('api_live_buses') }}";
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
