@@ -21,7 +21,7 @@
           </div>
         </div>
         <p class="eyebrow">Conductor Dashboard</p>
-        <h1>Crowd analytics control board</h1>
+        <h1>Crowd monitoring control</h1>
       </div>
       <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
     </header>
@@ -33,9 +33,9 @@
         <h2>{{ overview.active_trip.plate_number }} · {{ overview.active_trip.route_name }}</h2>
         <p>{{ overview.active_trip.start_point }} to {{ overview.active_trip.end_point }}</p>
         {% else %}
-        <span class="status idle">Waiting To Start</span>
-        <h2>Select an active trip or create a manual monitoring session.</h2>
-        <p>The conductor side focuses only on passenger counting and crowd analytics.</p>
+        <span class="status idle">Waiting For Driver</span>
+        <h2>Attach to an active driver trip to start monitoring.</h2>
+        <p>Location is always automatic. Passenger counting can be manual or automatic.</p>
         {% endif %}
       </div>
       <div class="hero-metrics">
@@ -47,7 +47,7 @@
     <section class="conductor-grid">
       <article class="main-panel">
         {% if not overview.active_trip %}
-        <div class="setup-grid">
+        <div class="setup-grid single">
           <form method="POST" class="setup-card">
             <input type="hidden" name="action" value="attach_trip">
             <h3>Attach To Active Driver Trip</h3>
@@ -57,83 +57,130 @@
               <option value="{{ trip.id }}">{{ trip.plate_number }} · {{ trip.route_name }} · {{ trip.driver_name or 'No driver name' }}</option>
               {% endfor %}
             </select>
+            <div class="mode-grid">
+              <label class="mode-option">
+                <input type="radio" name="monitoring_mode" value="manual" checked>
+                <div>
+                  <strong>Manual Count</strong>
+                  <span>Conductor enters passenger counts, location updates stay automatic.</span>
+                </div>
+              </label>
+              <label class="mode-option">
+                <input type="radio" name="monitoring_mode" value="auto">
+                <div>
+                  <strong>Automatic</strong>
+                  <span>Only location tracking runs. No manual crowd form is shown.</span>
+                </div>
+              </label>
+            </div>
             <button type="submit">Start Monitoring</button>
-          </form>
-
-          <form method="POST" class="setup-card">
-            <input type="hidden" name="action" value="manual_trip">
-            <h3>Create Manual Monitoring Trip</h3>
-            <select name="bus_id" required>
-              <option value="">Select bus</option>
-              {% for bus in overview.buses %}
-              <option value="{{ bus.id }}">{{ bus.plate_number }} · {{ bus.capacity }} seats</option>
-              {% endfor %}
-            </select>
-            <select name="route_id" required>
-              <option value="">Select route</option>
-              {% for route in overview.routes %}
-              <option value="{{ route.id }}">{{ route.route_name }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit">Create Monitoring Session</button>
           </form>
         </div>
         {% else %}
-        <form method="POST" class="counter-form">
-          <input type="hidden" name="action" value="update_count">
-          <div class="counter-grid">
-            {% for name, label in [('students', 'Students'), ('pwd', 'PWD'), ('senior', 'Senior'), ('regular', 'Regular'), ('dropped', 'Dropped')] %}
-            <div class="counter-card">
-              <span>{{ label }}</span>
-              <strong data-display-for="{{ name }}">{{ overview.form[name] }}</strong>
-              <div class="counter-actions">
-                <button type="button" class="counter-button" data-step="-1" data-target="{{ name }}">-</button>
-                <input type="number" min="0" name="{{ name }}" value="{{ overview.form[name] }}" required>
-                <button type="button" class="counter-button" data-step="1" data-target="{{ name }}">+</button>
+        <section class="automation-panel">
+          <div class="automation-head">
+            <div>
+              <h3>Location Automation</h3>
+              <p>The current stop and coordinates are taken from the driver's live GPS feed.</p>
+            </div>
+            <span class="tracking-chip" id="trackingStatus">Starting...</span>
+          </div>
+
+          <form method="POST" class="mode-switch">
+            <input type="hidden" name="action" value="set_monitoring_mode">
+            <label>
+              <span>Monitoring Mode</span>
+              <select name="monitoring_mode" onchange="this.form.submit()">
+                <option value="manual" {% if overview.active_trip.monitoring_mode == 'manual' %}selected{% endif %}>Manual Count + Auto Location</option>
+                <option value="auto" {% if overview.active_trip.monitoring_mode == 'auto' %}selected{% endif %}>Automatic Monitoring</option>
+              </select>
+            </label>
+          </form>
+
+          <div class="automation-grid">
+            <article class="automation-card">
+              <span>Current Area</span>
+              <strong id="currentStop">{{ overview.trip_summary.stop_name if overview.trip_summary else 'Waiting for location' }}</strong>
+              <small>Derived from the driver's current city or route stop</small>
+            </article>
+            <article class="automation-card">
+              <span>Current City / Stop</span>
+              <strong id="currentCoords">
+                {{ overview.trip_summary.stop_name if overview.trip_summary else 'Waiting for location' }}
+              </strong>
+              <small>Resolved from the driver's live route position</small>
+            </article>
+            <article class="automation-card">
+              <span>Latest Update</span>
+              <strong id="lastUpdate">
+                {% if overview.latest_position %}
+                {{ overview.latest_position.recorded_at }}
+                {% else %}
+                No live update yet
+                {% endif %}
+              </strong>
+              <small>Latest location received from the driver trip</small>
+            </article>
+          </div>
+
+          {% if overview.active_trip.monitoring_mode == 'manual' %}
+          <form method="POST" class="counter-form">
+            <input type="hidden" name="action" value="update_count">
+            <input type="hidden" name="resolved_stop_name" id="resolvedStopName" value="{{ overview.trip_summary.stop_name if overview.trip_summary else '' }}">
+            <div class="counter-grid">
+              {% for name, label in [('students', 'Students'), ('pwd', 'PWD'), ('senior', 'Senior'), ('regular', 'Regular'), ('dropped', 'Dropped')] %}
+              <div class="counter-card">
+                <span>{{ label }}</span>
+                <strong data-display-for="{{ name }}">{{ overview.form[name] }}</strong>
+                <div class="counter-actions">
+                  <button type="button" class="counter-button" data-step="-1" data-target="{{ name }}">-</button>
+                  <input type="number" min="0" name="{{ name }}" value="{{ overview.form[name] }}" required>
+                  <button type="button" class="counter-button" data-step="1" data-target="{{ name }}">+</button>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="totals-panel">
+              <div>
+                <span>Manual Total</span>
+                <strong id="liveTotal">{{ overview.capacity.count }}</strong>
+              </div>
+              <div>
+                <span>Discount Eligible</span>
+                <strong id="discountTotal">0</strong>
+              </div>
+              <div>
+                <span>Capacity Status</span>
+                <strong id="capacityStatus">{{ overview.capacity.label }}</strong>
               </div>
             </div>
-            {% endfor %}
-          </div>
 
-          <div class="form-strip">
-            <label>
-              <span>Current Stop / Location</span>
-              <input type="text" name="stop_name" value="{{ overview.form.stop_name }}" placeholder="Example: Public Market" required>
-            </label>
-            <label>
-              <span>Latitude</span>
-              <input type="text" name="latitude" placeholder="Optional GPS latitude">
-            </label>
-            <label>
-              <span>Longitude</span>
-              <input type="text" name="longitude" placeholder="Optional GPS longitude">
-            </label>
-          </div>
-
+            <div class="button-row">
+              <button type="submit" class="primary">Save Passenger Count</button>
+            </div>
+          </form>
+          {% else %}
           <div class="totals-panel">
             <div>
               <span>Current Total</span>
-              <strong id="liveTotal">0</strong>
-            </div>
-            <div>
-              <span>Discount Eligible</span>
-              <strong id="discountTotal">0</strong>
+              <strong>{{ overview.capacity.count }}</strong>
             </div>
             <div>
               <span>Capacity Status</span>
-              <strong id="capacityStatus">{{ overview.capacity.label }}</strong>
+              <strong>{{ overview.capacity.label }}</strong>
+            </div>
+            <div>
+              <span>Monitoring Mode</span>
+              <strong>Automatic</strong>
             </div>
           </div>
+          {% endif %}
 
-          <div class="button-row">
-            <button type="submit" class="primary">Save Crowd Update</button>
-          </div>
-        </form>
-
-        <form method="POST" class="detach-form">
-          <input type="hidden" name="action" value="stop_monitoring">
-          <button type="submit" class="secondary">Stop Monitoring</button>
-        </form>
+          <form method="POST" class="detach-form">
+            <input type="hidden" name="action" value="stop_monitoring">
+            <button type="submit" class="secondary">Stop Monitoring</button>
+          </form>
+        </section>
         {% endif %}
       </article>
 
@@ -170,9 +217,71 @@
     </section>
   </div>
 
+  {% if overview.active_trip %}
   <script>
+    const conductorLiveEndpoint = "{{ url_for('conductor_live') }}";
+    const trackingStatus = document.getElementById('trackingStatus');
+    const currentStop = document.getElementById('currentStop');
+    const currentCoords = document.getElementById('currentCoords');
+    const lastUpdate = document.getElementById('lastUpdate');
+    const resolvedStopName = document.getElementById('resolvedStopName');
+
+    async function resolveLocationName(lat, lng) {
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
+          headers: {
+            'Accept-Language': 'en'
+          }
+        });
+        if (!response.ok) {
+          return null;
+        }
+
+        const data = await response.json();
+        const address = data.address || {};
+        return (
+          address.city ||
+          address.town ||
+          address.municipality ||
+          address.village ||
+          address.county ||
+          address.state ||
+          null
+        );
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function refreshDriverLocation() {
+      const response = await fetch(conductorLiveEndpoint, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error('Failed to load driver location');
+      }
+      const payload = await response.json();
+      if (!payload.active) {
+        if (trackingStatus) trackingStatus.textContent = 'No active trip';
+        return;
+      }
+      if (trackingStatus) trackingStatus.textContent = payload.tracking ? 'Live' : 'Waiting for driver GPS';
+      const fallbackLabel = payload.stop_name || 'On route';
+      let resolvedLabel = fallbackLabel;
+      if (payload.tracking && payload.latitude !== undefined && payload.longitude !== undefined) {
+        const locationName = await resolveLocationName(payload.latitude, payload.longitude);
+        if (locationName) {
+          resolvedLabel = locationName;
+        }
+      }
+      if (currentStop) currentStop.textContent = resolvedLabel;
+      if (currentCoords) currentCoords.textContent = resolvedLabel;
+      if (resolvedStopName) resolvedStopName.value = resolvedLabel;
+      if (lastUpdate) lastUpdate.textContent = payload.recorded_at || 'No live update yet';
+    }
+
     const counterButtons = document.querySelectorAll('.counter-button');
     const inputs = document.querySelectorAll('.counter-form input[type="number"]');
+    const baseOccupancy = {{ overview.capacity.count }};
+    const capacityLimit = {{ overview.capacity.limit }};
 
     function getValue(name) {
       const input = document.querySelector(`input[name="${name}"]`);
@@ -192,7 +301,16 @@
       const senior = getValue('senior');
       const regular = getValue('regular');
       const dropped = getValue('dropped');
-      const total = Math.max((students + pwd + senior + regular) - dropped, 0);
+      const boardedTotal = students + pwd + senior + regular;
+      const maxDropped = baseOccupancy + boardedTotal;
+      const safeDropped = Math.min(dropped, maxDropped);
+      const droppedInput = document.querySelector('input[name="dropped"]');
+      const droppedDisplay = document.querySelector('[data-display-for="dropped"]');
+      if (safeDropped !== dropped) {
+        if (droppedInput) droppedInput.value = safeDropped;
+        if (droppedDisplay) droppedDisplay.textContent = safeDropped;
+      }
+      const total = Math.min(Math.max(baseOccupancy + boardedTotal - safeDropped, 0), capacityLimit);
       const discount = students + pwd + senior;
 
       const totalNode = document.getElementById('liveTotal');
@@ -202,6 +320,17 @@
       if (totalNode) totalNode.textContent = total;
       if (discountNode) discountNode.textContent = discount;
       if (capacityNode) capacityNode.textContent = getCapacityLabel(total, {{ overview.capacity.limit }});
+
+      counterButtons.forEach((button) => {
+        const target = button.dataset.target;
+        const step = Number(button.dataset.step) || 0;
+        const currentValue = getValue(target);
+        const atLowerBound = step < 0 && currentValue <= 0;
+        const projectedTotal = baseOccupancy + boardedTotal - dropped;
+        const atUpperBound = step > 0 && target !== 'dropped' && projectedTotal >= capacityLimit;
+        const droppedUpperBound = step > 0 && target === 'dropped' && currentValue >= maxDropped;
+        button.disabled = atLowerBound || atUpperBound || droppedUpperBound;
+      });
     }
 
     counterButtons.forEach((button) => {
@@ -227,6 +356,15 @@
     });
 
     refreshTotals();
+    refreshDriverLocation().catch(() => {
+      if (trackingStatus) trackingStatus.textContent = 'Update failed';
+    });
+    setInterval(() => {
+      refreshDriverLocation().catch(() => {
+        if (trackingStatus) trackingStatus.textContent = 'Update failed';
+      });
+    }, 5000);
   </script>
+  {% endif %}
 </body>
 </html>

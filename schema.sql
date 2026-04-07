@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS buses (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plate_number VARCHAR(40) NOT NULL UNIQUE,
     capacity INT NOT NULL DEFAULT 30,
-    status ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'online',
+    status ENUM('online', 'offline', 'maintenance') NOT NULL DEFAULT 'offline',
     route_color VARCHAR(20) DEFAULT '#1d4ed8',
     notes TEXT NULL
 );

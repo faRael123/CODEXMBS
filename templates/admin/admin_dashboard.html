@@ -37,7 +37,6 @@
           <a href="{{ url_for('logout') }}" class="solid-button">Logout</a>
         </div>
       </header>
-    </main>
 
     <div class="admin-menu-overlay" id="adminMenuOverlay">
       <aside class="admin-sidebar">
@@ -55,11 +54,11 @@
         </div>
 
         <nav class="sidebar-nav" id="adminTabNav">
-          <button type="button" class="tab-link active" data-target="overview">Overview</button>
-          <button type="button" class="tab-link" data-target="operations">Live Operations</button>
-          <button type="button" class="tab-link" data-target="analytics">Crowd Analytics</button>
-          <button type="button" class="tab-link" data-target="reports">Reports</button>
-          <button type="button" class="tab-link" data-target="logs">Logs</button>
+          <button type="button" class="tab-link {% if active_tab == 'overview' %}active{% endif %}" data-target="overview">Overview</button>
+          <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">Live Operations</button>
+          <button type="button" class="tab-link {% if active_tab == 'analytics' %}active{% endif %}" data-target="analytics">Crowd Analytics</button>
+          <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">Reports</button>
+          <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">Logs</button>
         </nav>
 
         <div class="sidebar-summary">
@@ -83,9 +82,7 @@
         </div>
       </aside>
     </div>
-
-    <main class="admin-content">
-      <section id="overview" class="content-section hero-section is-active">
+      <section id="overview" class="content-section hero-section {% if active_tab == 'overview' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Admin Control System</p>
@@ -138,7 +135,7 @@
         </div>
       </section>
 
-      <section id="operations" class="content-section">
+      <section id="operations" class="content-section {% if active_tab == 'operations' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Live Operations</p>
@@ -197,6 +194,7 @@
                   <th>Status</th>
                   <th>Occupancy</th>
                   <th>Peak</th>
+                  <th>Update</th>
                 </tr>
               </thead>
               <tbody>
@@ -207,6 +205,19 @@
                   <td>{{ bus.status }} / {{ bus.trip_status }}</td>
                   <td>{{ bus.occupancy }}/{{ bus.capacity }}</td>
                   <td>{{ bus.peak_occupancy }}</td>
+                  <td>
+                    <form method="POST" class="inline-status-form">
+                      <input type="hidden" name="action" value="update_bus_status">
+                      <input type="hidden" name="bus_id" value="{{ bus.id }}">
+                      <input type="hidden" name="redirect_tab" value="operations">
+                      <select name="status">
+                        <option value="online" {% if bus.status == 'online' %}selected{% endif %}>Online</option>
+                        <option value="offline" {% if bus.status == 'offline' %}selected{% endif %}>Offline</option>
+                        <option value="maintenance" {% if bus.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                      </select>
+                      <button type="submit" class="mini-button">Save</button>
+                    </form>
+                  </td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -215,7 +226,7 @@
         </div>
       </section>
 
-      <section id="analytics" class="content-section">
+      <section id="analytics" class="content-section {% if active_tab == 'analytics' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Crowd Analytics</p>
@@ -264,7 +275,7 @@
         </div>
       </section>
 
-      <section id="reports" class="content-section">
+      <section id="reports" class="content-section {% if active_tab == 'reports' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Reports</p>
@@ -302,7 +313,7 @@
         </div>
       </section>
 
-      <section id="logs" class="content-section">
+      <section id="logs" class="content-section {% if active_tab == 'logs' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Logs</p>
@@ -343,6 +354,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
     const chartData = {{ overview.charts|tojson }};
+    const initialAdminTab = {{ active_tab|tojson }};
     const adminLiveEndpoint = "{{ url_for('api_admin_live') }}";
     const adminBurger = document.getElementById('adminBurger');
     const adminMenuOverlay = document.getElementById('adminMenuOverlay');
@@ -582,7 +594,7 @@
       });
     }
 
-    renderAdminMap();
+    showSection(initialAdminTab || 'overview');
     setInterval(refreshAdminLive, 5000);
   </script>
 </body>

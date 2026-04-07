@@ -21,6 +21,19 @@ const menuClose = document.getElementById('menuClose');
 
 let mapLayers = [];
 
+function hasValidCoordinates(lat, lng) {
+  return (
+    lat !== null &&
+    lat !== undefined &&
+    lng !== null &&
+    lng !== undefined &&
+    Number.isFinite(Number(lat)) &&
+    Number.isFinite(Number(lng)) &&
+    Math.abs(Number(lat)) <= 90 &&
+    Math.abs(Number(lng)) <= 180
+  );
+}
+
 function markerColor(level) {
   if (level === 'High') return '#dc2626';
   if (level === 'Medium') return '#ea580c';
@@ -134,11 +147,13 @@ function offsetIfOverlapping(lat, lng) {
 }
 
 function getSortedBuses() {
-  const sorted = [...buses];
+  const sorted = buses.filter((bus) => bus.status === 'online');
   const sortMode = sortSelect ? sortSelect.value : 'nearest';
 
   sorted.forEach((bus) => {
-    bus.distanceKm = userLocation ? distanceKm(userLocation, { lat: Number(bus.lat), lng: Number(bus.lng) }) : Number.POSITIVE_INFINITY;
+    bus.distanceKm = userLocation && hasValidCoordinates(bus.lat, bus.lng)
+      ? distanceKm(userLocation, { lat: Number(bus.lat), lng: Number(bus.lng) })
+      : Number.POSITIVE_INFINITY;
     bus.capacityRatio = Number(bus.capacity) > 0 ? Number(bus.passengers) / Number(bus.capacity) : 0;
   });
 
@@ -159,7 +174,7 @@ function renderBusList() {
   const sortedBuses = getSortedBuses();
 
   if (!sortedBuses.length) {
-    busList.innerHTML = '<div class="bus-card"><h3>No active buses</h3><p>The system will show buses here once trips start.</p></div>';
+    busList.innerHTML = '<div class="bus-card"><h3>No buses found</h3><p>The system will show fleet units here once they are registered.</p></div>';
     return;
   }
 
@@ -172,12 +187,16 @@ function renderBusList() {
         <span class="crowd-pill ${bus.crowdLevel}">${bus.crowdLevel}</span>
       </div>
       <div class="row">
-        <span>Next stop: ${bus.nextStop}</span>
+        <span>Status: ${bus.status}</span>
         <span>${bus.driver}</span>
       </div>
       <div class="row">
-        <span>${Number.isFinite(bus.distanceKm) ? `${bus.distanceKm.toFixed(2)} km away` : 'Distance unavailable'}</span>
+        <span>${bus.nextStop}</span>
+        <span>${bus.tripStatus === 'active' && Number.isFinite(bus.distanceKm) ? `${bus.distanceKm.toFixed(2)} km away` : 'Distance unavailable'}</span>
+      </div>
+      <div class="row">
         <span>${Math.round(bus.capacityRatio * 100)}% load</span>
+        <span>${bus.tripStatus === 'active' ? 'Live trip' : 'No active trip'}</span>
       </div>
     </article>
   `).join('');
@@ -185,7 +204,7 @@ function renderBusList() {
 
 function renderSummary(summary) {
   if (activeBusCount) activeBusCount.textContent = summary.active_bus_count ?? buses.length;
-  if (avgCrowd) avgCrowd.textContent = summary.avg_crowd ?? 'Low';
+  if (avgCrowd) avgCrowd.textContent = summary.avg_crowd ?? 0;
   if (highCrowdCount) highCrowdCount.textContent = summary.high_count ?? 0;
   if (crowdLevels) {
     crowdLevels.innerHTML = `
@@ -200,8 +219,6 @@ function renderMap() {
   clearMapLayers();
 
   const sortedBuses = getSortedBuses();
-  if (!sortedBuses.length) return;
-
   const bounds = [];
 
   if (userLocation) {
@@ -213,10 +230,11 @@ function renderMap() {
   }
 
   sortedBuses.forEach((bus) => {
+    const hasLivePosition = hasValidCoordinates(bus.lat, bus.lng);
     const coords = Array.isArray(bus.coords) ? bus.coords : [];
     const history = Array.isArray(bus.history) ? bus.history : [];
 
-    if (coords.length) {
+    if (coords.length && bus.tripStatus === 'active') {
       const routeLine = addLayer(L.polyline(coords, {
         color: bus.routeColor || '#1d4ed8',
         weight: 5,
@@ -237,6 +255,10 @@ function renderMap() {
       bounds.push(...history);
     }
 
+    if (!hasLivePosition) {
+      return;
+    }
+
     const [markerLat, markerLng] = offsetIfOverlapping(Number(bus.lat), Number(bus.lng));
     const marker = addLayer(L.marker([markerLat, markerLng], {
       icon: createBusIcon(bus.crowdLevel)
@@ -244,6 +266,7 @@ function renderMap() {
     marker.bindPopup(`
       <strong>${bus.id}</strong><br>
       ${bus.direction}<br>
+      Status: ${bus.status}<br>
       ${bus.passengers}/${bus.capacity} passengers<br>
       ${bus.nextStop}
     `);
@@ -252,6 +275,8 @@ function renderMap() {
 
   if (bounds.length) {
     map.fitBounds(bounds, { padding: [24, 24] });
+  } else if (userLocation) {
+    map.setView([userLocation.lat, userLocation.lng], 14);
   }
 }
 
