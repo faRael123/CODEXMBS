@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conductor Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/conductor.css') }}">
+</head>
+<body>
+  <div class="conductor-shell">
+    <header class="conductor-topbar">
+      <div>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Conductor Operations</p>
+          </div>
+        </div>
+        <p class="eyebrow">Conductor Dashboard</p>
+        <h1>Crowd analytics control board</h1>
+      </div>
+      <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+    </header>
+
+    <section class="hero-panel">
+      <div>
+        {% if overview.active_trip %}
+        <span class="status live">Monitoring Active</span>
+        <h2>{{ overview.active_trip.plate_number }} · {{ overview.active_trip.route_name }}</h2>
+        <p>{{ overview.active_trip.start_point }} to {{ overview.active_trip.end_point }}</p>
+        {% else %}
+        <span class="status idle">Waiting To Start</span>
+        <h2>Select an active trip or create a manual monitoring session.</h2>
+        <p>The conductor side focuses only on passenger counting and crowd analytics.</p>
+        {% endif %}
+      </div>
+      <div class="hero-metrics">
+        <strong>{{ overview.capacity.count }}/{{ overview.capacity.limit }}</strong>
+        <span>{{ overview.capacity.label }} capacity</span>
+      </div>
+    </section>
+
+    <section class="conductor-grid">
+      <article class="main-panel">
+        {% if not overview.active_trip %}
+        <div class="setup-grid">
+          <form method="POST" class="setup-card">
+            <input type="hidden" name="action" value="attach_trip">
+            <h3>Attach To Active Driver Trip</h3>
+            <select name="trip_id" required>
+              <option value="">Select active trip</option>
+              {% for trip in overview.available_trips %}
+              <option value="{{ trip.id }}">{{ trip.plate_number }} · {{ trip.route_name }} · {{ trip.driver_name or 'No driver name' }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Start Monitoring</button>
+          </form>
+
+          <form method="POST" class="setup-card">
+            <input type="hidden" name="action" value="manual_trip">
+            <h3>Create Manual Monitoring Trip</h3>
+            <select name="bus_id" required>
+              <option value="">Select bus</option>
+              {% for bus in overview.buses %}
+              <option value="{{ bus.id }}">{{ bus.plate_number }} · {{ bus.capacity }} seats</option>
+              {% endfor %}
+            </select>
+            <select name="route_id" required>
+              <option value="">Select route</option>
+              {% for route in overview.routes %}
+              <option value="{{ route.id }}">{{ route.route_name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Create Monitoring Session</button>
+          </form>
+        </div>
+        {% else %}
+        <form method="POST" class="counter-form">
+          <input type="hidden" name="action" value="update_count">
+          <div class="counter-grid">
+            {% for name, label in [('students', 'Students'), ('pwd', 'PWD'), ('senior', 'Senior'), ('regular', 'Regular'), ('dropped', 'Dropped')] %}
+            <div class="counter-card">
+              <span>{{ label }}</span>
+              <strong data-display-for="{{ name }}">{{ overview.form[name] }}</strong>
+              <div class="counter-actions">
+                <button type="button" class="counter-button" data-step="-1" data-target="{{ name }}">-</button>
+                <input type="number" min="0" name="{{ name }}" value="{{ overview.form[name] }}" required>
+                <button type="button" class="counter-button" data-step="1" data-target="{{ name }}">+</button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+
+          <div class="form-strip">
+            <label>
+              <span>Current Stop / Location</span>
+              <input type="text" name="stop_name" value="{{ overview.form.stop_name }}" placeholder="Example: Public Market" required>
+            </label>
+            <label>
+              <span>Latitude</span>
+              <input type="text" name="latitude" placeholder="Optional GPS latitude">
+            </label>
+            <label>
+              <span>Longitude</span>
+              <input type="text" name="longitude" placeholder="Optional GPS longitude">
+            </label>
+          </div>
+
+          <div class="totals-panel">
+            <div>
+              <span>Current Total</span>
+              <strong id="liveTotal">0</strong>
+            </div>
+            <div>
+              <span>Discount Eligible</span>
+              <strong id="discountTotal">0</strong>
+            </div>
+            <div>
+              <span>Capacity Status</span>
+              <strong id="capacityStatus">{{ overview.capacity.label }}</strong>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button type="submit" class="primary">Save Crowd Update</button>
+          </div>
+        </form>
+
+        <form method="POST" class="detach-form">
+          <input type="hidden" name="action" value="stop_monitoring">
+          <button type="submit" class="secondary">Stop Monitoring</button>
+        </form>
+        {% endif %}
+      </article>
+
+      <aside class="side-panel">
+        <section class="summary-card">
+          <h3>Today Summary</h3>
+          <div class="summary-list">
+            <div><span>Students</span><strong>{{ overview.today_summary.students }}</strong></div>
+            <div><span>PWD</span><strong>{{ overview.today_summary.pwd }}</strong></div>
+            <div><span>Senior</span><strong>{{ overview.today_summary.senior }}</strong></div>
+            <div><span>Regular</span><strong>{{ overview.today_summary.regular }}</strong></div>
+            <div><span>Total</span><strong>{{ overview.today_summary.total }}</strong></div>
+            <div><span>Records</span><strong>{{ overview.today_summary.records }}</strong></div>
+          </div>
+        </section>
+
+        <section class="summary-card">
+          <h3>Recent Records</h3>
+          {% if overview.recent_records %}
+          <div class="record-list">
+            {% for row in overview.recent_records %}
+            <article>
+              <strong>{{ row.stop_name }}</strong>
+              <span>{{ row.recorded_at }}</span>
+              <p>{{ row.total }} passengers · {{ row.crowd_level }} crowd</p>
+            </article>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="muted">No crowd records yet.</p>
+          {% endif %}
+        </section>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    const counterButtons = document.querySelectorAll('.counter-button');
+    const inputs = document.querySelectorAll('.counter-form input[type="number"]');
+
+    function getValue(name) {
+      const input = document.querySelector(`input[name="${name}"]`);
+      return Number(input ? input.value : 0) || 0;
+    }
+
+    function getCapacityLabel(total, limit) {
+      const ratio = limit > 0 ? total / limit : 0;
+      if (ratio <= 0.4) return 'Low';
+      if (ratio <= 0.75) return 'Medium';
+      return 'High';
+    }
+
+    function refreshTotals() {
+      const students = getValue('students');
+      const pwd = getValue('pwd');
+      const senior = getValue('senior');
+      const regular = getValue('regular');
+      const dropped = getValue('dropped');
+      const total = Math.max((students + pwd + senior + regular) - dropped, 0);
+      const discount = students + pwd + senior;
+
+      const totalNode = document.getElementById('liveTotal');
+      const discountNode = document.getElementById('discountTotal');
+      const capacityNode = document.getElementById('capacityStatus');
+
+      if (totalNode) totalNode.textContent = total;
+      if (discountNode) discountNode.textContent = discount;
+      if (capacityNode) capacityNode.textContent = getCapacityLabel(total, {{ overview.capacity.limit }});
+    }
+
+    counterButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = button.dataset.target;
+        const step = Number(button.dataset.step) || 0;
+        const input = document.querySelector(`input[name="${target}"]`);
+        const display = document.querySelector(`[data-display-for="${target}"]`);
+        if (!input) return;
+        const nextValue = Math.max(0, (Number(input.value) || 0) + step);
+        input.value = nextValue;
+        if (display) display.textContent = nextValue;
+        refreshTotals();
+      });
+    });
+
+    inputs.forEach((input) => {
+      input.addEventListener('input', () => {
+        const display = document.querySelector(`[data-display-for="${input.name}"]`);
+        if (display) display.textContent = Math.max(0, Number(input.value) || 0);
+        refreshTotals();
+      });
+    });
+
+    refreshTotals();
+  </script>
+</body>
+</html>
