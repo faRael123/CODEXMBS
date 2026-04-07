@@ -112,7 +112,7 @@
     </section>
 
     <div class="driver-footer-actions">
-      <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+      <a href="{{ url_for('logout') }}" class="logout-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
     </div>
   </div>
 

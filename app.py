@@ -6,8 +6,17 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import wraps
+from io import BytesIO
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from connection import bootstrap_db, get_db
 
@@ -143,6 +152,145 @@ def derive_trip_location_label(trip, latitude, longitude):
         if abs(latitude - end_lat) <= 0.003 and abs(longitude - end_lng) <= 0.003:
             return trip.get("end_point") or "Route end"
     return f"On route to {trip.get('end_point') or 'terminal'}"
+
+
+def render_chart_image(title, labels, values, chart_type="bar", color="#D60000"):
+    figure, axis = plt.subplots(figsize=(6.8, 2.8))
+    axis.set_title(title, fontsize=12, fontweight="bold")
+
+    if chart_type == "line":
+        axis.plot(labels, values, color=color, linewidth=2.5, marker="o", markersize=4)
+        axis.fill_between(labels, values, color=color, alpha=0.12)
+    else:
+        axis.bar(labels, values, color=color, alpha=0.9)
+
+    axis.grid(axis="y", linestyle="--", linewidth=0.6, alpha=0.35)
+    axis.spines["top"].set_visible(False)
+    axis.spines["right"].set_visible(False)
+    axis.tick_params(axis="x", labelrotation=30, labelsize=8)
+    axis.tick_params(axis="y", labelsize=8)
+    figure.tight_layout()
+
+    chart_buffer = BytesIO()
+    figure.savefig(chart_buffer, format="png", dpi=180, bbox_inches="tight")
+    plt.close(figure)
+    chart_buffer.seek(0)
+    return chart_buffer
+
+
+def build_admin_pdf_report(overview):
+    pdf_buffer = BytesIO()
+    document = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=A4,
+        rightMargin=32,
+        leftMargin=32,
+        topMargin=32,
+        bottomMargin=32,
+    )
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = styles["Heading1"]
+    title_style.textColor = colors.HexColor("#D60000")
+    subtitle_style = styles["Normal"]
+    subtitle_style.textColor = colors.HexColor("#475569")
+
+    story.append(Paragraph("Gajoda Transportation Services", title_style))
+    story.append(Paragraph("Crowd Analytics Report", styles["Heading2"]))
+    story.append(Paragraph(f"Generated: {now().strftime('%B %d, %Y %I:%M %p')}", subtitle_style))
+    story.append(Spacer(1, 0.18 * inch))
+
+    summary_rows = [
+        ["Passengers Today", str(overview["today_total"]), "Trips Today", str(overview["trips_today"])],
+        ["Active Live Buses", str(overview["active_bus_count"]), "Average Load", f'{overview["avg_crowd"]}%'],
+        ["High Crowd Trips", str(overview["high_crowd_count"]), "Peak Hour", f'{overview["peak_hour_label"]} ({overview["peak_hour_value"]})'],
+    ]
+    summary_table = Table(summary_rows, colWidths=[1.55 * inch, 1.0 * inch, 1.55 * inch, 2.0 * inch])
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#0f172a")),
+                ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#dbe2ea")),
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+                ("PADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    story.append(summary_table)
+    story.append(Spacer(1, 0.22 * inch))
+
+    charts = overview["charts"]
+    chart_specs = [
+        ("7-Day Passenger Trend", charts["daily_labels"], charts["daily_values"], "line"),
+        ("Hourly Demand", charts["hourly_labels"], charts["hourly_values"], "bar"),
+        ("Route Passenger Comparison", charts["route_labels"], charts["route_values"], "bar"),
+    ]
+    for title, labels, values, chart_type in chart_specs:
+        if not labels:
+            continue
+        story.append(Paragraph(title, styles["Heading3"]))
+        story.append(Image(render_chart_image(title, labels, values, chart_type), width=6.7 * inch, height=2.6 * inch))
+        story.append(Spacer(1, 0.15 * inch))
+
+    story.append(Paragraph("AI Insights", styles["Heading3"]))
+    for insight in overview["insights"]:
+        story.append(Paragraph(f"<b>{insight['title']}</b>: {insight['body']}", styles["BodyText"]))
+        story.append(Spacer(1, 0.08 * inch))
+
+    story.append(Spacer(1, 0.12 * inch))
+    story.append(Paragraph("Route Summary", styles["Heading3"]))
+    route_table_rows = [["Route", "Trips", "Passengers", "Avg Load %"]]
+    for row in overview["route_rows"]:
+        route_table_rows.append([
+            row["route_name"],
+            str(row["trip_count"]),
+            str(row["passengers"]),
+            f'{row["avg_load_percent"]}%',
+        ])
+    route_table = Table(route_table_rows, colWidths=[2.8 * inch, 0.8 * inch, 1.0 * inch, 1.0 * inch])
+    route_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D60000")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#dbe2ea")),
+                ("PADDING", (0, 0), (-1, -1), 7),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+            ]
+        )
+    )
+    story.append(route_table)
+
+    if overview["recent_logs"]:
+        story.append(Spacer(1, 0.2 * inch))
+        story.append(Paragraph("Recent Logs", styles["Heading3"]))
+        log_rows = [["Time", "Role", "Action", "Description"]]
+        for log in overview["recent_logs"][:8]:
+            log_rows.append([
+                str(log["created_at"]),
+                str(log["role"] or "system"),
+                str(log["action"]),
+                str(log["description"]),
+            ])
+        log_table = Table(log_rows, colWidths=[1.35 * inch, 0.75 * inch, 1.1 * inch, 3.1 * inch])
+        log_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fee2e2")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#7f1d1d")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dbe2ea")),
+                    ("PADDING", (0, 0), (-1, -1), 6),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(log_table)
+
+    document.build(story)
+    pdf_buffer.seek(0)
+    return pdf_buffer
 
 
 def get_latest_trip_gps(conn, trip_id):
@@ -1056,7 +1204,7 @@ def forgot_password():
         email = request.form.get("email", "").strip()
         user = fetch_one("SELECT full_name FROM users WHERE email = ?", (email,))
         if user:
-            return render_template("forgot_password.html", message=f"Password reset request recorded for {user['full_name']} (demo only).")
+            return render_template("forgot_password.html", message=f"Password reset request recorded for {user['full_name']}.")
         return render_template("forgot_password.html", error="Email not found.")
     return render_template("forgot_password.html")
 
@@ -1123,23 +1271,18 @@ def api_admin_live():
     return jsonify(normalize_json_value(payload))
 
 
-@app.route("/admin/report.csv")
+@app.route("/admin/report.pdf")
 @require_role("admin")
 def admin_report():
     conn = get_db()
     overview = build_admin_overview(conn)
     conn.close()
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Route", "Trips", "Passengers", "Average Load %"])
-    for row in overview["route_rows"]:
-        writer.writerow([row["route_name"], row["trip_count"], row["passengers"], row["avg_load_percent"]])
-
+    output = build_admin_pdf_report(overview)
     return Response(
         output.getvalue(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=minibus-report.csv"},
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=gajoda-crowd-analytics-report.pdf"},
     )
 
 

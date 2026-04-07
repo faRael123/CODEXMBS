@@ -23,7 +23,7 @@
         <p class="eyebrow">Conductor Dashboard</p>
         <h1>Crowd monitoring control</h1>
       </div>
-      <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+      <a href="{{ url_for('logout') }}" class="logout-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
     </header>
 
     <section class="hero-panel">

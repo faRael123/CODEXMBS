@@ -34,7 +34,7 @@
         </div>
         <div class="header-actions">
           <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
-          <a href="{{ url_for('logout') }}" class="solid-button">Logout</a>
+          <a href="{{ url_for('logout') }}" class="solid-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
         </div>
       </header>
 
@@ -78,7 +78,7 @@
 
         <div class="sidebar-actions">
           <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
-          <a href="{{ url_for('logout') }}" class="solid-button">Logout</a>
+          <a href="{{ url_for('logout') }}" class="solid-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
         </div>
       </aside>
     </div>
