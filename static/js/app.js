@@ -1,4 +1,5 @@
 let buses = Array.isArray(window.liveBuses) ? window.liveBuses : [];
+let commuterData = window.commuterData && typeof window.commuterData === 'object' ? window.commuterData : { routes: [], stopDirectory: [], stopNames: [] };
 let userLocation = null;
 let userMarkerLayer = null;
 
@@ -21,6 +22,19 @@ const locateMeBtn = document.getElementById('locateMeBtn');
 const menuToggle = document.getElementById('menuToggle');
 const menuOverlay = document.getElementById('menuOverlay');
 const menuClose = document.getElementById('menuClose');
+
+const plannerOrigin = document.getElementById('plannerOrigin');
+const plannerDestination = document.getElementById('plannerDestination');
+const plannerSearchBtn = document.getElementById('plannerSearchBtn');
+const plannerSwapBtn = document.getElementById('plannerSwapBtn');
+const useCurrentLocationBtn = document.getElementById('useCurrentLocationBtn');
+const plannerResults = document.getElementById('plannerResults');
+const plannerDestinationHint = document.getElementById('plannerDestinationHint');
+const plannerDestinationSummary = document.getElementById('plannerDestinationSummary');
+const plannerDestinationChips = document.getElementById('plannerDestinationChips');
+const stopDirectoryList = document.getElementById('stopDirectoryList');
+const plannerRouteList = document.getElementById('plannerRouteList');
+const plannerStopOptions = document.getElementById('plannerStopOptions');
 
 let mapLayers = [];
 
@@ -128,10 +142,11 @@ function addLayer(layer) {
 
 function summarizeBuses(items) {
   const onlineBuses = items.filter((bus) => bus.status === 'online');
+  const liveTrackedBuses = onlineBuses.filter((bus) => bus.tripStatus === 'active' && bus.isLiveTracked);
   const counts = { Low: 0, Medium: 0, High: 0 };
   let totalLoad = 0;
 
-  onlineBuses.forEach((bus) => {
+  liveTrackedBuses.forEach((bus) => {
     const level = bus.crowdLevel === 'High' || bus.crowdLevel === 'Medium' ? bus.crowdLevel : 'Low';
     counts[level] += 1;
     totalLoad += Number(bus.capacityRatio) > 0
@@ -140,8 +155,8 @@ function summarizeBuses(items) {
   });
 
   return {
-    active_bus_count: onlineBuses.length,
-    avg_crowd: onlineBuses.length ? Math.round(totalLoad / onlineBuses.length) : 0,
+    active_bus_count: liveTrackedBuses.length,
+    avg_crowd: liveTrackedBuses.length ? Math.round(totalLoad / liveTrackedBuses.length) : 0,
     low_count: counts.Low,
     medium_count: counts.Medium,
     high_count: counts.High
@@ -364,8 +379,15 @@ function detectUserLocation() {
       updateUserLocationText('Detecting your city...');
       const locationName = await resolveLocationName(userLocation.lat, userLocation.lng);
       updateUserLocationText(locationName || `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`);
+      const nearestStop = findNearestStopForCurrentLocation();
+      if (plannerOrigin && nearestStop) {
+        plannerOrigin.value = nearestStop.name;
+      }
+      populateStopOptions();
+      renderDestinationGuidance();
       renderBusList();
       renderMap();
+      renderPlanner();
       if (map) {
         map.setView([userLocation.lat, userLocation.lng], 15);
       }
@@ -384,6 +406,414 @@ function detectUserLocation() {
   );
 }
 
+function stopNameKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getRoutes() {
+  return Array.isArray(commuterData.routes) ? commuterData.routes : [];
+}
+
+function getStopDirectory() {
+  return Array.isArray(commuterData.stopDirectory) ? commuterData.stopDirectory : [];
+}
+
+function findNearestStopForCurrentLocation() {
+  if (!userLocation) {
+    return null;
+  }
+
+  let nearestStop = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  getStopDirectory().forEach((stop) => {
+    if (!hasValidCoordinates(stop.lat, stop.lng)) {
+      return;
+    }
+    const distance = distanceKm(userLocation, { lat: Number(stop.lat), lng: Number(stop.lng) });
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestStop = stop;
+    }
+  });
+
+  return nearestStop;
+}
+
+function getRouteLiveBuses(routeName) {
+  return buses.filter((bus) => bus.direction === routeName && bus.tripStatus === 'active' && bus.isLiveTracked);
+}
+
+function getRoutesServingStop(stopName) {
+  return getRoutes().filter((route) => findRouteStopIndex(route, stopName) >= 0);
+}
+
+function findRouteStopIndex(route, stopName) {
+  const stops = Array.isArray(route.stops) ? route.stops : [];
+  return stops.findIndex((stop) => stopNameKey(stop.name) === stopNameKey(stopName));
+}
+
+function inferBusStopIndex(route, bus) {
+  const stops = Array.isArray(route.stops) ? route.stops : [];
+  let stopIndex = findRouteStopIndex(route, bus.nextStop);
+  if (stopIndex >= 0) {
+    return stopIndex;
+  }
+
+  if (!hasValidCoordinates(bus.lat, bus.lng)) {
+    return -1;
+  }
+
+  let nearestIndex = -1;
+  let nearestScore = Number.POSITIVE_INFINITY;
+  stops.forEach((stop, index) => {
+    const score = Math.abs(Number(bus.lat) - Number(stop.lat)) + Math.abs(Number(bus.lng) - Number(stop.lng));
+    if (score < nearestScore) {
+      nearestScore = score;
+      nearestIndex = index;
+    }
+  });
+  return nearestIndex;
+}
+
+function estimateMinutesToStop(route, bus, stopName) {
+  const targetIndex = findRouteStopIndex(route, stopName);
+  const currentIndex = inferBusStopIndex(route, bus);
+  const stops = Array.isArray(route.stops) ? route.stops : [];
+
+  if (targetIndex < 0 || currentIndex < 0 || currentIndex > targetIndex) {
+    return null;
+  }
+
+  const currentStop = stops[currentIndex];
+  const targetStop = stops[targetIndex];
+  return Math.max(Number(targetStop.minutes_from_start) - Number(currentStop.minutes_from_start), 0);
+}
+
+function estimateSegmentDistance(route, originStop, destinationStop) {
+  const totalDistance = Number(route.distanceKm) || 0;
+  const totalDuration = Number(route.expectedDurationMinutes) || 0;
+  const originMinutes = Number(originStop.minutes_from_start) || 0;
+  const destinationMinutes = Number(destinationStop.minutes_from_start) || 0;
+
+  if (totalDuration > 0 && destinationMinutes >= originMinutes) {
+    return (totalDistance * ((destinationMinutes - originMinutes) / totalDuration)).toFixed(1);
+  }
+
+  const indexGap = Math.max(Number(destinationStop.sequence) - Number(originStop.sequence), 0);
+  const denominator = Math.max((route.stops || []).length - 1, 1);
+  return (totalDistance * (indexGap / denominator)).toFixed(1);
+}
+
+function estimateFareTable(distanceKmValue, minimumFare = 15, discountedFare = 12) {
+  const numericDistance = Number(distanceKmValue) || 0;
+  const baseRegular = Math.max(Math.round(Number(minimumFare) || 15), 1);
+  const baseDiscounted = Math.max(Math.round(Number(discountedFare) || 12), 1);
+  const extraDistance = Math.max(numericDistance - 4, 0);
+  const regular = Math.max(Math.round(baseRegular + (extraDistance * 1.35)), baseRegular);
+  return {
+    regular,
+    student: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted),
+    pwd: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted),
+    senior: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted)
+  };
+}
+
+function buildDirectionalRoute(route, direction = 'forward') {
+  if (direction === 'forward') {
+    return {
+      ...route,
+      directionLabel: `${route.startPoint} to ${route.endPoint}`
+    };
+  }
+
+  const reversedStops = [...(route.stops || [])].reverse().map((stop, index, allStops) => ({
+    ...stop,
+    sequence: index + 1,
+    minutes_from_start: (Number(route.expectedDurationMinutes) || 0) - (Number(stop.minutes_from_start) || 0)
+  })).sort((a, b) => Number(a.minutes_from_start) - Number(b.minutes_from_start));
+
+  return {
+    ...route,
+    startPoint: route.endPoint,
+    endPoint: route.startPoint,
+    stops: reversedStops,
+    directionLabel: `${route.endPoint} to ${route.startPoint}`
+  };
+}
+
+function findJourneyOptions(originName, destinationName) {
+  if (!originName || !destinationName) {
+    return [];
+  }
+
+  const options = [];
+  getRoutes().forEach((route) => {
+    ['forward', 'reverse'].forEach((direction) => {
+      const directionalRoute = buildDirectionalRoute(route, direction);
+      const originIndex = findRouteStopIndex(directionalRoute, originName);
+      const destinationIndex = findRouteStopIndex(directionalRoute, destinationName);
+      if (originIndex < 0 || destinationIndex < 0 || originIndex >= destinationIndex) {
+        return;
+      }
+
+      const originStop = directionalRoute.stops[originIndex];
+      const destinationStop = directionalRoute.stops[destinationIndex];
+      const estimatedMinutes = Math.max(
+        Number(destinationStop.minutes_from_start) - Number(originStop.minutes_from_start),
+        0
+      );
+      const estimatedDistanceKm = estimateSegmentDistance(directionalRoute, originStop, destinationStop);
+      const liveBuses = direction === 'forward'
+        ? getRouteLiveBuses(route.routeName)
+            .map((bus) => ({
+              ...bus,
+              etaMinutes: estimateMinutesToStop(route, bus, originName)
+            }))
+            .filter((bus) => bus.etaMinutes !== null)
+            .sort((a, b) => a.etaMinutes - b.etaMinutes)
+        : [];
+
+      options.push({
+        route: directionalRoute,
+        canonicalRouteName: route.routeName,
+        travelDirection: direction,
+        originStop,
+        destinationStop,
+        estimatedMinutes,
+        estimatedDistanceKm,
+        fareTable: estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare),
+        liveBuses,
+        nextBus: liveBuses[0] || null
+      });
+    });
+  });
+
+  return options.sort((a, b) => a.estimatedMinutes - b.estimatedMinutes);
+}
+
+function renderPlannerResult(option) {
+  const stopSequence = option.route.stops
+    .slice(findRouteStopIndex(option.route, option.originStop.name), findRouteStopIndex(option.route, option.destinationStop.name) + 1)
+    .map((stop) => `<span class="${stop.name === option.originStop.name || stop.name === option.destinationStop.name ? 'active' : ''}">${stop.name}</span>`)
+    .join('');
+  const nextBusText = option.nextBus
+    ? `${option.nextBus.id} in about ${option.nextBus.etaMinutes} min from ${option.nextBus.nextStop}`
+    : 'No live bus has a clear ETA to this origin yet';
+  const directionLabel = option.travelDirection === 'reverse' ? 'Return trip direction' : 'Main corridor direction';
+
+  return `
+    <article class="planner-result-card">
+      <div class="planner-result-head">
+        <div>
+          <h3>${option.route.routeName}</h3>
+          <p class="planner-route-line">${option.originStop.name} to ${option.destinationStop.name}</p>
+        </div>
+        <span class="planner-direction-badge">${directionLabel}</span>
+      </div>
+      <div class="planner-badges">
+        <span>${option.estimatedMinutes} min estimated travel</span>
+        <span>${option.estimatedDistanceKm} km estimated distance</span>
+        <span>Minimum fare PHP ${Math.round(Number(option.route.minimumFare) || 0)}</span>
+        <span>${option.liveBuses.length} live bus${option.liveBuses.length === 1 ? '' : 'es'} on route</span>
+      </div>
+      <div class="planner-meta-grid">
+        <article class="planner-meta-card">
+          <span>Direction</span>
+          <strong>${option.route.directionLabel}</strong>
+        </article>
+        <article class="planner-meta-card">
+          <span>Boarding point</span>
+          <strong>${option.originStop.landmark}</strong>
+        </article>
+        <article class="planner-meta-card">
+          <span>Arrival point</span>
+          <strong>${option.destinationStop.landmark}</strong>
+        </article>
+      </div>
+      <div class="planner-meta">
+        <span>Next bus: ${nextBusText}</span>
+        <span>${option.route.stops.length} published stops on this corridor</span>
+      </div>
+      <div class="planner-stop-chips">${stopSequence}</div>
+      <div class="planner-fares">
+        <article><p>Regular</p><strong>PHP ${option.fareTable.regular}</strong></article>
+        <article><p>Student</p><strong>PHP ${option.fareTable.student}</strong></article>
+        <article><p>PWD</p><strong>PHP ${option.fareTable.pwd}</strong></article>
+        <article><p>Senior</p><strong>PHP ${option.fareTable.senior}</strong></article>
+      </div>
+    </article>
+  `;
+}
+
+function renderPlannerEmpty(message) {
+  if (!plannerResults) {
+    return;
+  }
+  plannerResults.innerHTML = `<article class="planner-empty"><strong>Planner unavailable</strong><p>${message}</p></article>`;
+}
+
+function renderDestinationGuidance() {
+  const destinationName = plannerDestination ? plannerDestination.value.trim() : '';
+  const originName = plannerOrigin ? plannerOrigin.value.trim() : '';
+  const routesServingDestination = destinationName ? getRoutesServingStop(destinationName) : [];
+
+  if (plannerDestinationHint) {
+    plannerDestinationHint.textContent = destinationName
+      ? `${destinationName} is available through ${routesServingDestination.length || 0} published corridor route${routesServingDestination.length === 1 ? '' : 's'}.`
+      : 'Choose the city stop, terminal, or roadside pickup point you want to reach.';
+  }
+
+  if (plannerDestinationSummary) {
+    if (!destinationName) {
+      plannerDestinationSummary.textContent = 'Select a destination to view route direction, estimated travel time, and fare guidance.';
+    } else if (!originName) {
+      plannerDestinationSummary.textContent = `${destinationName} is available. Set your origin to see the direct trip guidance.`;
+    } else {
+      plannerDestinationSummary.textContent = `Planning from ${originName} to ${destinationName}. The planner will match direct trips in the current Gajoda corridor.`;
+    }
+  }
+
+  if (plannerDestinationChips) {
+    const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
+    const candidates = stopNames.filter((name) => stopNameKey(name) !== stopNameKey(originName)).slice(0, 8);
+    plannerDestinationChips.innerHTML = candidates.map((name) => `<button type="button" class="${stopNameKey(name) === stopNameKey(destinationName) ? 'is-active' : ''}" data-destination-chip="${name}">${name}</button>`).join('');
+    plannerDestinationChips.querySelectorAll('[data-destination-chip]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (plannerDestination) {
+          plannerDestination.value = button.dataset.destinationChip || '';
+        }
+        renderDestinationGuidance();
+        renderPlanner();
+      });
+    });
+  }
+}
+
+function renderPlanner() {
+  if (!plannerResults) {
+    return;
+  }
+
+  const originName = plannerOrigin ? plannerOrigin.value.trim() : '';
+  const destinationName = plannerDestination ? plannerDestination.value.trim() : '';
+
+  if (!originName || !destinationName) {
+    renderPlannerEmpty('Choose an origin and destination stop to see the direct route, estimated time, and fare guide.');
+    return;
+  }
+
+  if (stopNameKey(originName) === stopNameKey(destinationName)) {
+    renderPlannerEmpty('Origin and destination must be different stops.');
+    return;
+  }
+
+  const options = findJourneyOptions(originName, destinationName);
+  if (!options.length) {
+    renderPlannerEmpty('No direct one-way route is published for that stop pair yet. For now the planner only handles direct trips inside the Gajoda corridor.');
+    return;
+  }
+
+  plannerResults.innerHTML = options.map(renderPlannerResult).join('');
+}
+
+function renderStopDirectory() {
+  if (!stopDirectoryList) {
+    return;
+  }
+
+  const directory = getStopDirectory();
+  if (!directory.length) {
+    stopDirectoryList.innerHTML = '<article class="stop-card"><strong>No stops published</strong><p>Stop information will appear here after route publishing is completed.</p></article>';
+    return;
+  }
+
+  stopDirectoryList.innerHTML = directory.map((stop) => `
+    <article class="stop-card">
+      <strong>${stop.name}</strong>
+      <span>${stop.landmark}</span>
+      <p>${stop.routes.join(' • ')}</p>
+      <p>${Array.isArray(stop.nextArrivals) && stop.nextArrivals.length ? stop.nextArrivals.map((arrival) => `${arrival.routeName}: ${arrival.minutes} min`).join(' • ') : 'No live arrival estimate right now'}</p>
+    </article>
+  `).join('');
+}
+
+function renderRouteCards() {
+  if (!plannerRouteList) {
+    return;
+  }
+
+  plannerRouteList.innerHTML = getRoutes().map((route) => {
+    const liveBuses = getRouteLiveBuses(route.routeName);
+    return `
+      <article class="route-mini-card">
+        <strong>${route.routeName}</strong>
+        <span>${route.startPoint} to ${route.endPoint}</span>
+        <p>${route.expectedDurationMinutes} min • ${route.distanceKm} km • Min fare PHP ${Math.round(Number(route.minimumFare) || 0)} • ${liveBuses.length} live bus${liveBuses.length === 1 ? '' : 'es'}</p>
+      </article>
+    `;
+  }).join('');
+}
+
+function populateStopOptions() {
+  const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
+  const defaultRoute = getRoutes()[0];
+  if (plannerStopOptions) {
+    plannerStopOptions.innerHTML = stopNames.map((name) => `<option value="${name}"></option>`).join('');
+  }
+
+  if (plannerDestination && plannerDestination.tagName === 'SELECT') {
+    const currentValue = plannerDestination.value;
+    const originValue = plannerOrigin ? plannerOrigin.value : '';
+    const destinationOptions = stopNames.filter((name) => stopNameKey(name) !== stopNameKey(originValue));
+    const groupedOptions = getRoutes().map((route) => {
+      const routeStops = (route.stops || [])
+        .map((stop) => stop.name)
+        .filter((name) => destinationOptions.includes(name));
+      if (!routeStops.length) {
+        return '';
+      }
+      return `<optgroup label="${route.routeName}">${routeStops.map((name) => `<option value="${name}">${name}</option>`).join('')}</optgroup>`;
+    }).join('');
+    plannerDestination.innerHTML = `<option value="">Select destination</option>${groupedOptions}`;
+    if (currentValue && destinationOptions.includes(currentValue)) {
+      plannerDestination.value = currentValue;
+    }
+  }
+
+  if (plannerOrigin && !plannerOrigin.value && defaultRoute && Array.isArray(defaultRoute.stops) && defaultRoute.stops.length) {
+    const nearestStop = findNearestStopForCurrentLocation();
+    plannerOrigin.value = nearestStop ? nearestStop.name : defaultRoute.stops[0].name;
+  }
+  if (plannerDestination && !plannerDestination.value && defaultRoute && Array.isArray(defaultRoute.stops) && defaultRoute.stops.length > 1) {
+    plannerDestination.value = defaultRoute.stops[defaultRoute.stops.length - 1].name;
+  }
+}
+
+function refreshPublicPlanner() {
+  populateStopOptions();
+  renderDestinationGuidance();
+  renderRouteCards();
+  renderStopDirectory();
+  renderPlanner();
+}
+
+async function refreshCommuterData() {
+  if (!window.publicCommuterEndpoint) {
+    return;
+  }
+
+  try {
+    const response = await fetch(window.publicCommuterEndpoint, { cache: 'no-store' });
+    if (!response.ok) {
+      return;
+    }
+    commuterData = await response.json();
+    refreshPublicPlanner();
+  } catch (error) {
+    console.error('Planner data refresh failed', error);
+  }
+}
+
 async function refreshLiveData() {
   try {
     const response = await fetch(window.liveBusEndpoint, { cache: 'no-store' });
@@ -393,6 +823,8 @@ async function refreshLiveData() {
     renderSummary(payload);
     renderBusList();
     renderMap();
+    renderRouteCards();
+    renderPlanner();
   } catch (error) {
     console.error('Live data refresh failed', error);
   }
@@ -409,6 +841,36 @@ if (locateMeBtn) {
   locateMeBtn.addEventListener('click', () => {
     detectUserLocation();
     setTimeout(focusUserMarker, 800);
+  });
+}
+
+if (plannerOrigin) {
+  plannerOrigin.addEventListener('change', () => {
+    populateStopOptions();
+    renderPlanner();
+  });
+}
+
+if (plannerDestination) {
+  plannerDestination.addEventListener('change', () => {
+    renderDestinationGuidance();
+    renderPlanner();
+  });
+}
+
+if (useCurrentLocationBtn && plannerOrigin) {
+  useCurrentLocationBtn.addEventListener('click', () => {
+    if (!userLocation) {
+      detectUserLocation();
+      return;
+    }
+    const nearestStop = findNearestStopForCurrentLocation();
+    if (nearestStop) {
+      plannerOrigin.value = nearestStop.name;
+      populateStopOptions();
+      renderDestinationGuidance();
+      renderPlanner();
+    }
   });
 }
 
@@ -441,7 +903,9 @@ document.addEventListener('keydown', (event) => {
 });
 
 renderSummary(summarizeBuses(buses));
+refreshPublicPlanner();
 detectUserLocation();
 renderBusList();
 renderMap();
 setInterval(refreshLiveData, 5000);
+setInterval(refreshCommuterData, 15000);

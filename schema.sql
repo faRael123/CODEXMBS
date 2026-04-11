@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS routes (
     coords_json JSON NOT NULL
 );
 
+ALTER TABLE routes ADD COLUMN is_published TINYINT(1) NOT NULL DEFAULT 1;
+ALTER TABLE routes ADD COLUMN minimum_fare DECIMAL(10,2) NOT NULL DEFAULT 15.00;
+ALTER TABLE routes ADD COLUMN discounted_fare DECIMAL(10,2) NOT NULL DEFAULT 12.00;
+ALTER TABLE routes ADD COLUMN display_order INT NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS trips (
     id INT AUTO_INCREMENT PRIMARY KEY,
     driver_id INT NULL,
@@ -111,9 +116,28 @@ CREATE TABLE IF NOT EXISTS system_logs (
     CONSTRAINT fk_system_logs_user FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS service_alerts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    trip_id INT NULL,
+    route_id INT NULL,
+    stop_name VARCHAR(150) NULL,
+    title VARCHAR(180) NOT NULL,
+    message TEXT NOT NULL,
+    severity ENUM('info', 'warning', 'critical') NOT NULL DEFAULT 'info',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_by INT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_service_alerts_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE SET NULL,
+    CONSTRAINT fk_service_alerts_route FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE SET NULL,
+    CONSTRAINT fk_service_alerts_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+ALTER TABLE service_alerts ADD COLUMN trip_id INT NULL;
+
 CREATE INDEX idx_trips_status ON trips(status);
 CREATE INDEX idx_trip_records_trip_id ON trip_records(trip_id);
 CREATE INDEX idx_trip_records_recorded_at ON trip_records(recorded_at);
 CREATE INDEX idx_trip_transactions_trip_id ON trip_transactions(trip_id);
 CREATE INDEX idx_trip_transactions_recorded_at ON trip_transactions(recorded_at);
 CREATE INDEX idx_gps_logs_trip_id ON gps_logs(trip_id);
+CREATE INDEX idx_service_alerts_active ON service_alerts(is_active, created_at);

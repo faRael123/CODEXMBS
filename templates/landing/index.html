@@ -63,6 +63,24 @@
         </aside>
       </section>
 
+      {% if service_alerts %}
+      <section class="alerts-section">
+        <div class="section-heading">
+          <span class="eyebrow">Service Alerts</span>
+          <h2>Published travel notices for commuters using the current Gajoda corridor.</h2>
+        </div>
+        <div class="alerts-grid">
+          {% for alert in service_alerts %}
+          <article class="alert-card severity-{{ alert.severity }}">
+            <strong>{{ alert.title }}</strong>
+            <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <p>{{ alert.message }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       <section class="info-section" id="company">
         <div class="section-heading">
           <span class="eyebrow">About Gajoda</span>
@@ -191,11 +209,11 @@
         </div>
         <div class="coverage-grid">
           <article class="coverage-card primary">
-            <h3>{{ primary_route.route_name if primary_route else 'Cabiao - Cabanatuan' }}</h3>
-            <p>{{ primary_route.start_point if primary_route else 'Cabiao Terminal' }} to {{ primary_route.end_point if primary_route else 'Cabanatuan Central Terminal' }}</p>
+            <h3>{{ primary_route.routeName if primary_route else 'Cabiao - Cabanatuan' }}</h3>
+            <p>{{ primary_route.startPoint if primary_route else 'Cabiao Terminal' }} to {{ primary_route.endPoint if primary_route else 'Cabanatuan Central Terminal' }}</p>
             <div class="coverage-meta">
-              <span>Estimated duration: {{ primary_route.expected_duration_minutes if primary_route else 55 }} minutes</span>
-              <span>Estimated distance: {{ primary_route.distance_km if primary_route else '27.5' }} km</span>
+              <span>Estimated duration: {{ primary_route.expectedDurationMinutes if primary_route else 55 }} minutes</span>
+              <span>Estimated distance: {{ primary_route.distanceKm if primary_route else '27.5' }} km</span>
             </div>
           </article>
           <article class="coverage-card">
@@ -206,6 +224,67 @@
             <h3>Pickup and Stop Info</h3>
             <p>Placeholder coverage details for terminals, common stops, and service intervals will be published here as route information is finalized.</p>
           </article>
+        </div>
+      </section>
+
+      <section class="planner-section" id="planner">
+        <div class="section-heading">
+          <span class="eyebrow">Route Directions</span>
+          <h2>Search a direct trip between major Gajoda stops before you leave for the terminal.</h2>
+        </div>
+        <div class="planner-grid">
+          <article class="planner-card planner-builder">
+            <div class="planner-copy">
+              <h3>Origin to destination guidance</h3>
+              <p>First practical version for the Cabiao to Cabanatuan corridor: direct route match, stop order, estimated travel time, and demo fare guidance by passenger type.</p>
+            </div>
+            <div class="planner-form">
+              <label>
+                <span>Origin</span>
+                <input type="text" id="plannerOrigin" list="plannerStopOptions" placeholder="Select origin stop">
+              </label>
+              <label>
+                <span>Destination</span>
+                <input type="text" id="plannerDestination" list="plannerStopOptions" placeholder="Select destination stop">
+              </label>
+            </div>
+            <div class="planner-actions">
+              <button type="button" class="primary-button" id="plannerSearchBtn">Find Route</button>
+              <button type="button" class="secondary-button" id="plannerSwapBtn">Swap Stops</button>
+            </div>
+            <datalist id="plannerStopOptions"></datalist>
+            <div id="plannerResults" class="planner-results"></div>
+          </article>
+
+          <div class="planner-side">
+            <article class="planner-card">
+              <h3>Published routes</h3>
+              <div class="route-card-list" id="plannerRouteList">
+                {% for route in route_cards %}
+                <article class="route-mini-card">
+                  <strong>{{ route.routeName }}</strong>
+                  <span>{{ route.startPoint }} to {{ route.endPoint }}</span>
+                  <p>{{ route.expectedDurationMinutes }} min &middot; {{ route.distanceKm }} km &middot; Min fare PHP {{ route.minimumFare|round|int }} &middot; {{ route.availableBusCount }} live bus{% if route.availableBusCount != 1 %}es{% endif %}</p>
+                </article>
+                {% endfor %}
+              </div>
+            </article>
+
+            <article class="planner-card">
+              <h3>Stop directory</h3>
+              <div class="stop-directory-list" id="stopDirectoryList">
+                {% for stop in stop_directory_preview %}
+                <article class="stop-card">
+                  <strong>{{ stop.name }}</strong>
+                  <span>{{ stop.landmark }}</span>
+                  <p>{{ stop.routes|join(' · ') }}</p>
+                  <p>{% if stop.nextArrivals %}{% for arrival in stop.nextArrivals %}{{ arrival.routeName }}: {{ arrival.minutes }} min{% if not loop.last %} · {% endif %}{% endfor %}{% else %}No live arrival estimate right now{% endif %}</p>
+                </article>
+                {% endfor %}
+              </div>
+              <a href="{{ url_for('tracker') }}" class="text-link">Open the full tracker for live bus positions</a>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -264,6 +343,13 @@
       </div>
     </footer>
   </div>
+  <script>
+    window.liveBuses = {{ buses_json|safe }};
+    window.liveBusEndpoint = "{{ url_for('api_live_buses') }}";
+    window.publicCommuterEndpoint = "{{ url_for('api_public_commuter') }}";
+    window.commuterData = {{ commuter_data_json|safe }};
+  </script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

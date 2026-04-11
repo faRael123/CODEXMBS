@@ -11,6 +11,19 @@
   --hot: #b91c1c;
 }
 
+:root[data-theme="dark"] {
+  --bg: #101114;
+  --sidebar: #171c24;
+  --panel: #171c24;
+  --ink: #f8fafc;
+  --muted: #cbd5e1;
+  --line: #314152;
+  --brand: #ff5252;
+  --good: #34d399;
+  --warn: #f59e0b;
+  --hot: #f87171;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -21,6 +34,25 @@ body {
     radial-gradient(circle at top left, rgba(214, 0, 0, 0.08), transparent 24%),
     radial-gradient(circle at bottom right, rgba(214, 0, 0, 0.05), transparent 22%),
     var(--bg);
+}
+
+.theme-toggle {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.floating-theme-toggle {
+  position: fixed;
+  top: 22px;
+  right: 24px;
+  z-index: 4000;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
 }
 
 .admin-layout {
@@ -38,6 +70,16 @@ body {
   height: 100%;
   position: relative;
   z-index: 3002;
+}
+
+:root[data-theme="dark"] .admin-sidebar,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .stat-card,
+:root[data-theme="dark"] .admin-burger,
+:root[data-theme="dark"] .ghost-button {
+  background: var(--panel) !important;
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .admin-menu-overlay {
@@ -129,6 +171,11 @@ body {
   color: var(--brand);
 }
 
+:root[data-theme="dark"] .tab-link:hover,
+:root[data-theme="dark"] .tab-link.active {
+  background: rgba(255, 82, 82, 0.12);
+}
+
 .sidebar-summary {
   display: grid;
   gap: 12px;
@@ -139,6 +186,11 @@ body {
   border-radius: 16px;
   background: #fff1f1;
   border: 1px solid #ffd3d3;
+}
+
+:root[data-theme="dark"] .sidebar-summary div {
+  background: rgba(255, 82, 82, 0.1);
+  border-color: rgba(255, 82, 82, 0.22);
 }
 
 .sidebar-summary span,
@@ -172,7 +224,7 @@ table td {
 .ghost-button {
   border: 1px solid var(--line);
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--panel);
 }
 
 .solid-button {
@@ -205,7 +257,7 @@ table td {
   width: 48px;
   height: 48px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   border-radius: 14px;
   display: inline-flex;
   flex-direction: column;
@@ -294,8 +346,8 @@ table td {
 .stat-card,
 .panel,
 .insight-card {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 24px;
   padding: 22px;
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.05);
@@ -366,15 +418,21 @@ th {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
-.inline-status-form select {
+.inline-status-form select,
+.inline-status-form input,
+.stack-form input,
+.stack-form textarea,
+.stack-form select {
   min-width: 118px;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 10px;
   font: inherit;
-  background: #fff;
+  background: var(--panel);
+  color: var(--ink);
 }
 
 .mini-button {
@@ -386,6 +444,65 @@ th {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+}
+
+.stack-form {
+  display: grid;
+  gap: 14px;
+}
+
+.stack-form label {
+  display: grid;
+  gap: 8px;
+}
+
+.stack-form span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-submit {
+  border: 0;
+}
+
+.alert-admin-list {
+  display: grid;
+  gap: 12px;
+}
+
+.alert-admin-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme="dark"] .alert-admin-item {
+  background: rgba(23, 28, 36, 0.92);
+}
+
+.alert-admin-item strong,
+.alert-admin-item span {
+  display: block;
+}
+
+.alert-admin-item span,
+.alert-admin-item p {
+  color: var(--muted);
+}
+
+.alert-admin-item p {
+  margin: 8px 0 0;
 }
 
 @media (max-width: 1280px) {
@@ -421,5 +538,9 @@ th {
 
   .header-actions {
     justify-content: space-between;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
   }
 }

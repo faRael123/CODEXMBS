@@ -153,18 +153,22 @@ a {
 }
 
 .hero-section,
+.alerts-section,
 .info-section,
 .trust-section,
 .coverage-section,
+.planner-section,
 .preview-section,
 .home-footer {
   margin-bottom: 22px;
 }
 
 .hero-section,
+.alerts-section,
 .info-section,
 .trust-section,
 .coverage-section,
+.planner-section,
 .preview-section {
   border: 1px solid rgba(240, 214, 214, 0.95);
   border-radius: 30px;
@@ -305,8 +309,10 @@ a {
 }
 
 .info-section,
+.alerts-section,
 .trust-section,
 .coverage-section,
+.planner-section,
 .preview-section {
   padding: 28px;
 }
@@ -326,6 +332,7 @@ a {
 .company-grid,
 .people-grid,
 .coverage-grid,
+.planner-grid,
 .preview-grid {
   display: grid;
   gap: 16px;
@@ -350,6 +357,10 @@ a {
 
 .coverage-grid {
   grid-template-columns: 1.2fr 0.8fr 0.8fr;
+}
+
+.planner-grid {
+  grid-template-columns: 1.15fr 0.85fr;
 }
 
 .preview-grid {
@@ -440,6 +451,181 @@ a {
   font-weight: 600;
 }
 
+.planner-card {
+  padding: 22px;
+  border-radius: 22px;
+  border: 1px solid rgba(240, 214, 214, 0.9);
+  background: var(--panel-solid);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.04);
+}
+
+.alerts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.alert-card {
+  padding: 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(240, 214, 214, 0.9);
+  background: var(--panel-solid);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.04);
+}
+
+.alert-card strong,
+.alert-card span {
+  display: block;
+}
+
+.alert-card span {
+  margin: 8px 0;
+  color: var(--muted);
+}
+
+.alert-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.severity-info {
+  border-top: 4px solid #2563eb;
+}
+
+.severity-warning {
+  border-top: 4px solid #d97706;
+}
+
+.severity-critical {
+  border-top: 4px solid var(--brand);
+}
+
+.planner-builder,
+.planner-results,
+.route-card-list,
+.stop-directory-list,
+.planner-side {
+  display: grid;
+  gap: 14px;
+}
+
+.planner-copy h3,
+.planner-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.planner-copy p,
+.planner-card p,
+.route-mini-card p,
+.stop-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.planner-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.planner-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.planner-form span,
+.route-mini-card span,
+.stop-card span,
+.planner-fares span {
+  display: block;
+  color: var(--muted);
+}
+
+.planner-form input {
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel-solid);
+  color: var(--ink);
+  font: inherit;
+}
+
+.planner-actions,
+.planner-badges,
+.planner-meta,
+.planner-stop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.planner-empty,
+.planner-result-card,
+.route-mini-card,
+.stop-card {
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  padding: 16px 18px;
+}
+
+.planner-result-card {
+  background: linear-gradient(180deg, rgba(255, 243, 243, 0.95), #ffffff);
+}
+
+:root[data-theme="dark"] .planner-result-card {
+  background: linear-gradient(180deg, rgba(43, 25, 27, 0.96), rgba(29, 23, 24, 0.98));
+}
+
+.planner-result-card strong,
+.route-mini-card strong,
+.stop-card strong,
+.planner-fares strong {
+  display: block;
+}
+
+.planner-badges span,
+.planner-meta span,
+.planner-stop-chips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.planner-stop-chips span.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: white;
+}
+
+.planner-fares {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.planner-fares article {
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+}
+
+.planner-fares strong {
+  margin-top: 6px;
+  font-size: 1.2rem;
+}
+
 .metrics-card {
   display: grid;
   gap: 14px;
@@ -511,10 +697,12 @@ a {
   .hero-section,
   .about-grid,
   .services-grid,
+  .alerts-grid,
   .trust-grid,
   .company-grid,
   .people-grid,
   .coverage-grid,
+  .planner-grid,
   .preview-grid,
   .home-footer {
     grid-template-columns: 1fr;
@@ -575,11 +763,18 @@ a {
 
   .hero-section,
   .info-section,
+  .alerts-section,
   .trust-section,
   .coverage-section,
+  .planner-section,
   .preview-section,
   .home-footer {
     padding: 22px;
+  }
+
+  .planner-form,
+  .planner-fares {
+    grid-template-columns: 1fr;
   }
 
   .hero-copy h1 {

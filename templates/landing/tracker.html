@@ -30,7 +30,15 @@
       </div>
     </header>
 
-    <section class="landing-hero commuter-focus">
+    <nav class="tracker-nav" aria-label="Tracker section navigation">
+      <a href="#tracker-top">Top</a>
+      {% if service_alerts %}<a href="#service-alerts">Alerts</a>{% endif %}
+      <a href="#route-planner">Planner</a>
+      <a href="#live-map">Map</a>
+      <a href="#available-buses">Buses</a>
+    </nav>
+
+    <section class="landing-hero commuter-focus" id="tracker-top">
       <div class="location-card">
         <span class="location-label">Your location</span>
         <strong id="userLocationText">Detecting your location...</strong>
@@ -57,8 +65,75 @@
       </div>
     </section>
 
+    {% if service_alerts %}
+    <section class="planner-panel-wrap" id="service-alerts">
+      <article class="planner-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Service Alerts</h2>
+            <span>Current advisories affecting routes, stops, and crowd conditions.</span>
+          </div>
+        </div>
+        <div class="stop-directory-list">
+          {% for alert in service_alerts %}
+          <article class="stop-card">
+            <strong>{{ alert.title }}</strong>
+            <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <p>{{ alert.message }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+    {% endif %}
+
+    <section class="planner-panel-wrap" id="route-planner">
+      <article class="planner-panel planner-panel-large">
+        <div class="planner-shell">
+          <div class="planner-main">
+            <div class="panel-head planner-head">
+              <div>
+                <h2>Commuter Route Planner</h2>
+                <span>Pick where you are and where you want to go. The planner will show the direct corridor trip, minimum fare, stop sequence, and live next-bus hints when available.</span>
+              </div>
+            </div>
+            <div class="planner-form planner-form-large">
+              <label class="planner-field planner-field-origin">
+                <span>Your origin</span>
+                <div class="origin-control">
+                  <input type="text" id="plannerOrigin" placeholder="Use your current location" readonly>
+                  <button type="button" class="ghost-action" id="useCurrentLocationBtn">Use Current Location</button>
+                </div>
+                <small>We resolve your current location to the nearest published Gajoda boarding stop.</small>
+              </label>
+              <label class="planner-field planner-field-destination">
+                <span>Choose destination</span>
+                <select id="plannerDestination">
+                  <option value="">Select destination</option>
+                </select>
+                <small id="plannerDestinationHint">Choose the city stop, terminal, or roadside pickup point you want to reach.</small>
+              </label>
+            </div>
+            <datalist id="plannerStopOptions"></datalist>
+            <div id="plannerResults" class="planner-results planner-results-large"></div>
+          </div>
+          <aside class="planner-directory planner-directory-wide">
+            <section class="planner-info-card">
+              <h3>Available destinations</h3>
+              <p id="plannerDestinationSummary">Select a destination to view route direction, estimated travel time, and fare guidance.</p>
+              <div id="plannerDestinationChips" class="planner-destination-chips"></div>
+            </section>
+            <section class="planner-info-card">
+              <h3>Stop Directory</h3>
+              <div id="stopDirectoryList" class="stop-directory-list"></div>
+            </section>
+          </aside>
+        </div>
+      </article>
+    </section>
+
     <section class="landing-main map-first">
-      <div class="map-panel priority-map">
+      <div class="map-panel priority-map" id="live-map">
         <div class="panel-head">
           <div>
             <h2>Live Map</h2>
@@ -69,7 +144,7 @@
         <div id="map"></div>
       </div>
 
-      <aside class="list-panel">
+      <aside class="list-panel" id="available-buses">
         <div class="panel-head">
           <div>
             <h2>Available Buses</h2>
@@ -108,6 +183,10 @@
       <nav class="menu-links">
         <a href="{{ url_for('landing') }}">Home</a>
         <a href="{{ url_for('tracker') }}">Track Minibus</a>
+        {% if service_alerts %}<a href="#service-alerts">Service Alerts</a>{% endif %}
+        <a href="#route-planner">Route Planner</a>
+        <a href="#live-map">Live Map</a>
+        <a href="#available-buses">Available Buses</a>
         <a href="{{ url_for('landing') }}#coverage">Route Coverage</a>
         <a href="{{ url_for('login') }}">Staff Login</a>
       </nav>
@@ -118,6 +197,8 @@
   <script>
     window.liveBuses = {{ buses_json|safe }};
     window.liveBusEndpoint = "{{ url_for('api_live_buses') }}";
+    window.publicCommuterEndpoint = "{{ url_for('api_public_commuter') }}";
+    window.commuterData = {{ commuter_data_json|safe }};
   </script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>

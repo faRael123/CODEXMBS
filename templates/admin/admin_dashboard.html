@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
   {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
   {% set route_count = overview.route_rows | length %}
@@ -57,7 +58,10 @@
           <button type="button" class="tab-link {% if active_tab == 'overview' %}active{% endif %}" data-target="overview">Overview</button>
           <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">Live Operations</button>
           <button type="button" class="tab-link {% if active_tab == 'analytics' %}active{% endif %}" data-target="analytics">Crowd Analytics</button>
+          <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">Commuter Info</button>
+          <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">Profiles</button>
           <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">Reports</button>
+          <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">Audit Trail</button>
           <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">Logs</button>
         </nav>
 
@@ -263,6 +267,13 @@
             </div>
             <canvas id="mixChart"></canvas>
           </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Top Boarding Stops</h3>
+              <span>Most active stops from transaction records</span>
+            </div>
+            <canvas id="stopChart"></canvas>
+          </article>
         </div>
 
         <div class="insights-grid">
@@ -272,6 +283,155 @@
             <p>{{ insight.body }}</p>
           </article>
           {% endfor %}
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Stop-Level Demand</h3>
+            <span>Boarding and drop-off activity per stop</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Stop</th>
+                <th>Boarded</th>
+                <th>Dropped</th>
+                <th>Transactions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for stop in overview.stop_rows %}
+              <tr>
+                <td>{{ stop.stop_name }}</td>
+                <td>{{ stop.boarded }}</td>
+                <td>{{ stop.dropped }}</td>
+                <td>{{ stop.transactions }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <section id="commuter" class="content-section {% if active_tab == 'commuter' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Commuter Info</p>
+            <h2>Route publication, minimum fares, and public alerts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Published Route Settings</h3>
+              <span>Control route visibility and displayed minimum fares</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Status</th>
+                  <th>Regular Fare</th>
+                  <th>Discounted Fare</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in overview.route_rows %}
+                <tr>
+                  <td>{{ row.route_name }}</td>
+                  <td>{{ 'Published' if row.is_published else 'Hidden' }}</td>
+                  <td>PHP {{ row.minimum_fare }}</td>
+                  <td>PHP {{ row.discounted_fare }}</td>
+                  <td>
+                    <form method="POST" class="inline-status-form">
+                      <input type="hidden" name="action" value="update_route_settings">
+                      <input type="hidden" name="route_id" value="{{ row.id }}">
+                      <input type="hidden" name="redirect_tab" value="commuter">
+                      <select name="is_published">
+                        <option value="1" {% if row.is_published %}selected{% endif %}>Published</option>
+                        <option value="0" {% if not row.is_published %}selected{% endif %}>Hidden</option>
+                      </select>
+                      <input type="number" name="minimum_fare" min="1" step="0.01" value="{{ row.minimum_fare }}">
+                      <input type="number" name="discounted_fare" min="1" step="0.01" value="{{ row.discounted_fare }}">
+                      <button type="submit" class="mini-button">Save</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Create Service Alert</h3>
+              <span>Publish notices for route delays, crowding, or dispatch advisories</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="action" value="create_service_alert">
+              <input type="hidden" name="redirect_tab" value="commuter">
+              <label>
+                <span>Title</span>
+                <input type="text" name="title" required>
+              </label>
+              <label>
+                <span>Message</span>
+                <textarea name="message" rows="4" required></textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>Severity</span>
+                  <select name="severity">
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Route</span>
+                  <select name="route_id">
+                    <option value="">System-wide</option>
+                    {% for row in overview.route_rows %}
+                    <option value="{{ row.id }}">{{ row.route_name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span>Stop Name</span>
+                  <input type="text" name="stop_name" placeholder="Optional specific stop">
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">Publish Alert</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Active Alerts</h3>
+              <span>Currently visible on the commuter pages</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for alert in overview.service_alerts %}
+              <article class="alert-admin-item severity-{{ alert.severity }}">
+                <div>
+                  <strong>{{ alert.title }}</strong>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+                  <p>{{ alert.message }}</p>
+                </div>
+                <form method="POST">
+                  <input type="hidden" name="action" value="clear_service_alert">
+                  <input type="hidden" name="alert_id" value="{{ alert.id }}">
+                  <input type="hidden" name="redirect_tab" value="commuter">
+                  <button type="submit" class="mini-button">Clear</button>
+                </form>
+              </article>
+              {% else %}
+              <p class="section-copy">No active alerts.</p>
+              {% endfor %}
+            </div>
+          </article>
         </div>
       </section>
 
@@ -313,6 +473,128 @@
         </div>
       </section>
 
+      <section id="profiles" class="content-section {% if active_tab == 'profiles' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Profiles</p>
+            <h2>Create new admin, driver, and conductor accounts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Create Profile</h3>
+              <span>Add a new staff account for the system</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="action" value="create_profile">
+              <input type="hidden" name="redirect_tab" value="profiles">
+              <div class="form-grid">
+                <label>
+                  <span>Full Name</span>
+                  <input type="text" name="full_name" required>
+                </label>
+                <label>
+                  <span>Username</span>
+                  <input type="text" name="username" required>
+                </label>
+                <label>
+                  <span>Email</span>
+                  <input type="email" name="email" required>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>Password</span>
+                  <input type="text" name="password" required>
+                </label>
+                <label>
+                  <span>Role</span>
+                  <select name="role" required>
+                    <option value="driver">Driver</option>
+                    <option value="conductor">Conductor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">Create Profile</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Existing Profiles</h3>
+              <span>Current staff accounts in the system</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for user in overview.user_rows %}
+                <tr>
+                  <td>{{ user.full_name }}</td>
+                  <td>{{ user.username }}</td>
+                  <td>{{ user.email }}</td>
+                  <td>{{ user.role }}</td>
+                  <td>{{ user.created_at }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      <section id="audit" class="content-section {% if active_tab == 'audit' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Audit Trail</p>
+            <h2>Transaction-level history for crowd analytics and review</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Recent Trip Transactions</h3>
+            <span>Latest boarding and drop events captured by the system</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Trip</th>
+                <th>Route</th>
+                <th>Event</th>
+                <th>Stop</th>
+                <th>Conductor</th>
+                <th>Occupancy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.recent_transaction_audit %}
+              <tr>
+                <td>{{ row.recorded_at }}</td>
+                <td>{{ row.plate_number }} / #{{ row.trip_id }}</td>
+                <td>{{ row.route_name }}</td>
+                <td>{{ row.event_type }} {{ row.quantity }} {{ row.passenger_type }}</td>
+                <td>{{ row.stop_name }}</td>
+                <td>{{ row.conductor_name or 'Unassigned' }}</td>
+                <td>{{ row.occupancy_after }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+
       <section id="logs" class="content-section {% if active_tab == 'logs' %}is-active{% endif %}">
         <div class="section-head">
           <div>
@@ -352,6 +634,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script>
     const chartData = {{ overview.charts|tojson }};
     const initialAdminTab = {{ active_tab|tojson }};
@@ -462,6 +745,20 @@
         datasets: [{
           data: chartData.mix_values,
           backgroundColor: ['#D60000', '#fb7185', '#f59e0b', '#374151']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('stopChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.stop_labels,
+        datasets: [{
+          label: 'Boarded passengers',
+          data: chartData.stop_values,
+          backgroundColor: '#2563eb',
+          borderRadius: 10
         }]
       },
       options: { responsive: true, maintainAspectRatio: false }

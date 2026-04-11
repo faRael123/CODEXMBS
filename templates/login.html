@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
 </head>
 <body>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <main class="login-shell single-column">
     <section class="login-panel">
       <div class="brand-lockup">
@@ -46,5 +47,6 @@
       </div>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>
