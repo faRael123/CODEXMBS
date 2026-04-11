@@ -74,6 +74,24 @@ CREATE TABLE IF NOT EXISTS trip_records (
     CONSTRAINT fk_trip_records_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS trip_transactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    trip_id INT NOT NULL,
+    conductor_id INT NULL,
+    event_type ENUM('board', 'drop') NOT NULL DEFAULT 'board',
+    passenger_type ENUM('student', 'pwd', 'senior', 'regular', 'mixed') NOT NULL DEFAULT 'regular',
+    quantity INT NOT NULL DEFAULT 1,
+    fare_amount DECIMAL(10,2) NULL,
+    stop_name VARCHAR(150) NOT NULL DEFAULT 'Unknown',
+    latitude DECIMAL(10,6) NULL,
+    longitude DECIMAL(10,6) NULL,
+    occupancy_after INT NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_trip_transactions_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+    CONSTRAINT fk_trip_transactions_conductor FOREIGN KEY (conductor_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS gps_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     trip_id INT NOT NULL,
@@ -96,4 +114,6 @@ CREATE TABLE IF NOT EXISTS system_logs (
 CREATE INDEX idx_trips_status ON trips(status);
 CREATE INDEX idx_trip_records_trip_id ON trip_records(trip_id);
 CREATE INDEX idx_trip_records_recorded_at ON trip_records(recorded_at);
+CREATE INDEX idx_trip_transactions_trip_id ON trip_transactions(trip_id);
+CREATE INDEX idx_trip_transactions_recorded_at ON trip_transactions(recorded_at);
 CREATE INDEX idx_gps_logs_trip_id ON gps_logs(trip_id);

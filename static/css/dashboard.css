@@ -7,6 +7,15 @@
   --danger: #b91c1c;
 }
 
+:root[data-theme="dark"] {
+  --bg: #101114;
+  --ink: #f8fafc;
+  --muted: #cbd5e1;
+  --line: #314152;
+  --brand: #ff5252;
+  --danger: #f87171;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -16,6 +25,25 @@ body {
   background:
     radial-gradient(circle at top left, rgba(214, 0, 0, 0.1), transparent 24%),
     var(--bg);
+}
+
+.theme-toggle {
+  border: 1px solid var(--line);
+  background: #17202c;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.floating-theme-toggle {
+  position: fixed;
+  top: 22px;
+  right: 24px;
+  z-index: 4000;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
 }
 
 .driver-shell { max-width: 1440px; margin: 0 auto; padding: 24px; }
@@ -82,7 +110,7 @@ body {
 
 .driver-grid {
   display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
+  grid-template-columns: 1fr;
   gap: 20px;
 }
 
@@ -93,13 +121,21 @@ body {
 }
 
 .setup-panel,
-.map-panel,
 .metric-card {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(219, 226, 234, 0.92);
   border-radius: 24px;
   padding: 22px;
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+}
+
+:root[data-theme="dark"] .setup-panel,
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .trip-status,
+:root[data-theme="dark"] .trip-form select {
+  background: #17202c;
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .panel-head {
@@ -112,6 +148,11 @@ body {
 
 .panel-head h2 { margin: 0; }
 .panel-head span, .trip-status span, .trip-status small, .metric-card small { color: var(--muted); }
+.panel-copy {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.6;
+}
 
 .trip-form { display: grid; gap: 14px; }
 .trip-form label { display: grid; gap: 8px; }
@@ -173,7 +214,7 @@ body {
   background: #fee2e2;
   color: var(--danger);
 }
-.metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 
 .metric-card strong {
   display: block;
@@ -181,15 +222,8 @@ body {
   margin: 10px 0 6px;
 }
 
-#driverMap {
-  height: 620px;
-  border-radius: 18px;
-  overflow: hidden;
-}
-
 @media (max-width: 1000px) {
   .driver-grid { grid-template-columns: 1fr; }
-  #driverMap { height: 420px; }
-  .metric-grid { grid-template-columns: 1fr; }
+  .operation-grid { grid-template-columns: 1fr; }
   .driver-topbar { flex-direction: column; align-items: stretch; }
 }

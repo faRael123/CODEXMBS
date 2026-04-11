@@ -84,6 +84,13 @@ def capacity_details(occupancy, capacity=DEFAULT_BUS_CAPACITY):
     }
 
 
+def to_non_negative_int(value, default=0):
+    try:
+        return max(int(value), 0)
+    except (TypeError, ValueError):
+        return default
+
+
 def parse_route_coords(coords_json):
     if isinstance(coords_json, bytes):
         coords_json = coords_json.decode("utf-8")
@@ -305,6 +312,20 @@ def get_latest_trip_gps(conn, trip_id):
         (trip_id,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def get_recent_trip_transactions(conn, trip_id, limit=8):
+    rows = conn.execute(
+        """
+        SELECT recorded_at, event_type, passenger_type, quantity, stop_name, occupancy_after
+        FROM trip_transactions
+        WHERE trip_id = ?
+        ORDER BY recorded_at DESC, id DESC
+        LIMIT ?
+        """,
+        (trip_id, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def fetch_one(query, params=()):
@@ -798,6 +819,7 @@ def build_driver_overview(conn, driver_id):
         "trip_duration": "00:00:00",
         "crowd_level": "Low",
         "updates_count": 0,
+        "last_gps_at": None,
     }
 
     if active_trip:
@@ -826,8 +848,7 @@ def build_driver_overview(conn, driver_id):
             "trip_duration": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
             "crowd_level": classify_capacity(active_trip["occupancy"], active_trip["capacity"]),
             "updates_count": conn.execute("SELECT COUNT(*) AS total_count FROM trip_records WHERE trip_id = ?", (active_trip["id"],)).fetchone()["total_count"],
-            "last_latitude": float(latest_gps["latitude"]) if latest_gps and latest_gps["latitude"] is not None else None,
-            "last_longitude": float(latest_gps["longitude"]) if latest_gps and latest_gps["longitude"] is not None else None,
+            "last_gps_at": normalize_json_value(latest_gps["recorded_at"]) if latest_gps else None,
         }
 
     return {
@@ -871,18 +892,25 @@ def build_conductor_overview(conn, conductor_id):
     ]
     routes = [dict(row) for row in conn.execute("SELECT * FROM routes ORDER BY route_name").fetchall()]
 
-    form = {"students": 0, "pwd": 0, "senior": 0, "regular": 0, "dropped": 0}
-
-    form = {"students": 0, "pwd": 0, "senior": 0, "regular": 0, "dropped": 0, "stop_name": ""}
+    transaction_form = {
+        "students": 0,
+        "pwd": 0,
+        "senior": 0,
+        "regular": 0,
+        "dropped": 0,
+        "stop_name": "",
+    }
     trip_summary = None
-    recent_records = []
+    latest_gps = None
+    recent_transactions = []
     today_summary = {
         "students": 0,
         "pwd": 0,
         "senior": 0,
         "regular": 0,
-        "total": 0,
-        "records": 0,
+        "boarded": 0,
+        "dropped": 0,
+        "transactions": 0,
     }
 
     if active_trip:
@@ -890,42 +918,24 @@ def build_conductor_overview(conn, conductor_id):
         latest_record = get_latest_trip_record(conn, active_trip["id"])
         latest_gps = get_latest_trip_gps(conn, active_trip["id"])
         if latest_record:
-            form = {
-                "students": 0,
-                "pwd": 0,
-                "senior": 0,
-                "regular": 0,
-                "dropped": 0,
-            }
             trip_summary = latest_record
 
-        recent_records = [
-            dict(row)
-            for row in conn.execute(
-                """
-                SELECT recorded_at, stop_name, students, pwd, senior, regular, dropped, total, crowd_level
-                FROM trip_records
-                WHERE trip_id = ?
-                ORDER BY recorded_at DESC, id DESC
-                LIMIT 8
-                """,
-                (active_trip["id"],),
-            ).fetchall()
-        ]
+        recent_transactions = get_recent_trip_transactions(conn, active_trip["id"], 8)
 
     summary_row = conn.execute(
         """
         SELECT
-            COALESCE(SUM(students), 0) AS students,
-            COALESCE(SUM(pwd), 0) AS pwd,
-            COALESCE(SUM(senior), 0) AS senior,
-            COALESCE(SUM(regular), 0) AS regular,
-            COALESCE(SUM(total), 0) AS total,
-            COUNT(*) AS records
-        FROM trip_records tr
-        JOIN trips t ON t.id = tr.trip_id
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'student' THEN quantity ELSE 0 END), 0) AS students,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'pwd' THEN quantity ELSE 0 END), 0) AS pwd,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'senior' THEN quantity ELSE 0 END), 0) AS senior,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'regular' THEN quantity ELSE 0 END), 0) AS regular,
+            COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS boarded,
+            COALESCE(SUM(CASE WHEN event_type = 'drop' THEN quantity ELSE 0 END), 0) AS dropped,
+            COUNT(*) AS transactions
+        FROM trip_transactions tt
+        JOIN trips t ON t.id = tt.trip_id
         WHERE t.conductor_id = ?
-          AND DATE(tr.recorded_at) = DATE(?)
+          AND DATE(tt.recorded_at) = DATE(?)
         """,
         (conductor_id, now().date().isoformat()),
     ).fetchone()
@@ -943,12 +953,26 @@ def build_conductor_overview(conn, conductor_id):
         "available_trips": available_trips,
         "buses": buses,
         "routes": routes,
-        "form": form,
+        "transaction_form": transaction_form,
         "trip_summary": trip_summary,
         "today_summary": today_summary,
-        "recent_records": recent_records,
+        "recent_transactions": recent_transactions,
         "capacity": occupancy,
         "latest_position": normalize_json_value(latest_gps) if active_trip and latest_gps else None,
+        "workflow_notes": [
+            {
+                "title": "Ticketing + crowd merge candidate",
+                "body": "The current manual counter works, but it creates extra device switching for the conductor. The next redesign should combine passenger type entry and ticketing into one capture flow.",
+            },
+            {
+                "title": "Low-friction counting direction",
+                "body": "Keep GPS and stop detection automatic from the driver trip, then reduce manual conductor actions to the fewest taps possible per boarding event.",
+            },
+            {
+                "title": "Camera counting is future scope",
+                "body": "Camera-based passenger counting can later enrich validation and analytics, but it still needs planning, device integration, and data model changes before it should affect the workflow.",
+            },
+        ],
     }
 
 
@@ -1151,9 +1175,35 @@ seed_demo_data()
 def landing():
     conn = get_db()
     live_data = build_live_bus_data(conn)
+    primary_route = conn.execute(
+        """
+        SELECT route_name, start_point, end_point, distance_km, expected_duration_minutes
+        FROM routes
+        ORDER BY id
+        LIMIT 1
+        """
+    ).fetchone()
     conn.close()
+    preview_buses = [bus for bus in live_data["buses"] if bus["status"] == "online"][:3]
     return render_template(
         "landing/index.html",
+        active_bus_count=live_data["active_bus_count"],
+        avg_crowd=live_data["avg_crowd"],
+        low_count=live_data["low_count"],
+        medium_count=live_data["medium_count"],
+        high_count=live_data["high_count"],
+        preview_buses=preview_buses,
+        primary_route=dict(primary_route) if primary_route else None,
+    )
+
+
+@app.route("/track")
+def tracker():
+    conn = get_db()
+    live_data = build_live_bus_data(conn)
+    conn.close()
+    return render_template(
+        "landing/tracker.html",
         buses_json=json.dumps(live_data["buses"]),
         active_bus_count=live_data["active_bus_count"],
         avg_crowd=live_data["avg_crowd"],
@@ -1437,15 +1487,33 @@ def conductor():
                 )
                 log_event(conn, conductor_id, "conductor", "Monitoring Mode Changed", f"Trip #{active_trip['id']} switched to {monitoring_mode} monitoring.")
 
-        elif action == "update_count" and active_trip:
-            students = max(int(request.form.get("students", 0)), 0)
-            pwd = max(int(request.form.get("pwd", 0)), 0)
-            senior = max(int(request.form.get("senior", 0)), 0)
-            regular = max(int(request.form.get("regular", 0)), 0)
+        elif action == "record_transaction" and active_trip:
             current_occupancy = int(active_trip["occupancy"] or 0)
+            students = to_non_negative_int(request.form.get("students", 0), 0)
+            pwd = to_non_negative_int(request.form.get("pwd", 0), 0)
+            senior = to_non_negative_int(request.form.get("senior", 0), 0)
+            regular = to_non_negative_int(request.form.get("regular", 0), 0)
+            requested_boarded = students + pwd + senior + regular
+            dropped = min(to_non_negative_int(request.form.get("dropped", 0), 0), current_occupancy + requested_boarded)
+            max_boarded = max((active_trip["capacity"] or DEFAULT_BUS_CAPACITY) - current_occupancy + dropped, 0)
+            accepted_boarded = {}
+            remaining_boarded = max_boarded
+            for passenger_type, quantity in (
+                ("student", students),
+                ("pwd", pwd),
+                ("senior", senior),
+                ("regular", regular),
+            ):
+                accepted_quantity = min(quantity, remaining_boarded)
+                accepted_boarded[passenger_type] = accepted_quantity
+                remaining_boarded -= accepted_quantity
+
+            students = accepted_boarded["student"]
+            pwd = accepted_boarded["pwd"]
+            senior = accepted_boarded["senior"]
+            regular = accepted_boarded["regular"]
             boarded_total = students + pwd + senior + regular
-            dropped_cap = current_occupancy + boarded_total
-            dropped = min(max(int(request.form.get("dropped", 0)), 0), dropped_cap)
+
             latest_gps = get_latest_trip_gps(conn, active_trip["id"])
             latitude = latest_gps["latitude"] if latest_gps and latest_gps["latitude"] is not None else None
             longitude = latest_gps["longitude"] if latest_gps and latest_gps["longitude"] is not None else None
@@ -1459,6 +1527,58 @@ def conductor():
             total = min(max(current_occupancy + boarded_total - dropped, 0), active_trip["capacity"])
             crowd_level = classify_capacity(total, active_trip["capacity"])
             peak = max(active_trip["peak_occupancy"] or 0, total)
+
+            recorded_at = to_db_time(now())
+            transaction_rows = []
+            for passenger_type, quantity in (
+                ("student", students),
+                ("pwd", pwd),
+                ("senior", senior),
+                ("regular", regular),
+            ):
+                if quantity > 0:
+                    transaction_rows.append(
+                        (
+                            active_trip["id"],
+                            conductor_id,
+                            "board",
+                            passenger_type,
+                            quantity,
+                            None,
+                            stop_name,
+                            float(latitude) if latitude is not None else None,
+                            float(longitude) if longitude is not None else None,
+                            total,
+                            recorded_at,
+                        )
+                    )
+            if dropped > 0:
+                transaction_rows.append(
+                    (
+                        active_trip["id"],
+                        conductor_id,
+                        "drop",
+                        "mixed",
+                        dropped,
+                        None,
+                        stop_name,
+                        float(latitude) if latitude is not None else None,
+                        float(longitude) if longitude is not None else None,
+                        total,
+                        recorded_at,
+                    )
+                )
+            if transaction_rows:
+                conn.executemany(
+                    """
+                    INSERT INTO trip_transactions (
+                        trip_id, conductor_id, event_type, passenger_type, quantity, fare_amount,
+                        stop_name, latitude, longitude, occupancy_after, recorded_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    transaction_rows,
+                )
 
             conn.execute(
                 """
@@ -1476,13 +1596,13 @@ def conductor():
                     regular,
                     boarded_total,
                     dropped,
-                    total,
+                    boarded_total,
                     total,
                     crowd_level,
                     stop_name,
                     float(latitude) if latitude is not None else None,
                     float(longitude) if longitude is not None else None,
-                    to_db_time(now()),
+                    recorded_at,
                 ),
             )
             conn.execute(
@@ -1493,7 +1613,13 @@ def conductor():
                 """,
                 (total, peak, round((total / max(active_trip["capacity"], 1)) * 100, 1), active_trip["id"]),
             )
-            log_event(conn, conductor_id, "conductor", "Crowd Update", f"Trip #{active_trip['id']} manually updated to {total} passengers at {stop_name}.")
+            log_event(
+                conn,
+                conductor_id,
+                "conductor",
+                "Transaction Recorded",
+                f"Trip #{active_trip['id']} updated at {stop_name}: boarded {boarded_total}, dropped {dropped}, occupancy is now {total}.",
+            )
 
         elif action == "stop_monitoring" and active_trip:
             if active_trip["driver_id"]:

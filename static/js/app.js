@@ -2,10 +2,13 @@ let buses = Array.isArray(window.liveBuses) ? window.liveBuses : [];
 let userLocation = null;
 let userMarkerLayer = null;
 
-const map = L.map('map').setView([15.37, 120.94], 10);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors'
-}).addTo(map);
+const mapElement = document.getElementById('map');
+const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
+if (map) {
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+}
 
 const busList = document.getElementById('busList');
 const activeBusCount = document.getElementById('activeBusCount');
@@ -107,14 +110,42 @@ function focusUserMarker() {
 }
 
 function clearMapLayers() {
+  if (!map) {
+    return;
+  }
   mapLayers.forEach((layer) => map.removeLayer(layer));
   mapLayers = [];
 }
 
 function addLayer(layer) {
+  if (!map) {
+    return layer;
+  }
   layer.addTo(map);
   mapLayers.push(layer);
   return layer;
+}
+
+function summarizeBuses(items) {
+  const onlineBuses = items.filter((bus) => bus.status === 'online');
+  const counts = { Low: 0, Medium: 0, High: 0 };
+  let totalLoad = 0;
+
+  onlineBuses.forEach((bus) => {
+    const level = bus.crowdLevel === 'High' || bus.crowdLevel === 'Medium' ? bus.crowdLevel : 'Low';
+    counts[level] += 1;
+    totalLoad += Number(bus.capacityRatio) > 0
+      ? Number(bus.capacityRatio) * 100
+      : (Number(bus.capacity) > 0 ? (Number(bus.passengers) / Number(bus.capacity)) * 100 : 0);
+  });
+
+  return {
+    active_bus_count: onlineBuses.length,
+    avg_crowd: onlineBuses.length ? Math.round(totalLoad / onlineBuses.length) : 0,
+    low_count: counts.Low,
+    medium_count: counts.Medium,
+    high_count: counts.High
+  };
 }
 
 function distanceKm(a, b) {
@@ -216,6 +247,9 @@ function renderSummary(summary) {
 }
 
 function renderMap() {
+  if (!map) {
+    return;
+  }
   clearMapLayers();
 
   const sortedBuses = getSortedBuses();
@@ -332,7 +366,9 @@ function detectUserLocation() {
       updateUserLocationText(locationName || `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`);
       renderBusList();
       renderMap();
-      map.setView([userLocation.lat, userLocation.lng], 15);
+      if (map) {
+        map.setView([userLocation.lat, userLocation.lng], 15);
+      }
       setTimeout(focusUserMarker, 120);
     },
     () => {
@@ -376,26 +412,35 @@ if (locateMeBtn) {
   });
 }
 
+function setMenuOpen(open) {
+  if (!menuOverlay) {
+    return;
+  }
+
+  menuOverlay.classList.toggle('open', open);
+  document.body.classList.toggle('menu-open', open);
+}
+
 if (menuToggle && menuOverlay) {
-  menuToggle.addEventListener('click', () => menuOverlay.classList.add('open'));
+  menuToggle.addEventListener('click', () => setMenuOpen(true));
 }
 
 if (menuClose && menuOverlay) {
-  menuClose.addEventListener('click', () => menuOverlay.classList.remove('open'));
+  menuClose.addEventListener('click', () => setMenuOpen(false));
   menuOverlay.addEventListener('click', (event) => {
     if (event.target === menuOverlay) {
-      menuOverlay.classList.remove('open');
+      setMenuOpen(false);
     }
   });
 }
 
-renderSummary({
-  active_bus_count: buses.length,
-  avg_crowd: avgCrowd ? avgCrowd.textContent : 'Low',
-  low_count: crowdLevels ? Number((crowdLevels.textContent.match(/Low\s+(\d+)/) || [0, 0])[1]) : 0,
-  medium_count: crowdLevels ? Number((crowdLevels.textContent.match(/Medium\s+(\d+)/) || [0, 0])[1]) : 0,
-  high_count: highCrowdCount ? Number(highCrowdCount.textContent) : 0
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    setMenuOpen(false);
+  }
 });
+
+renderSummary(summarizeBuses(buses));
 detectUserLocation();
 renderBusList();
 renderMap();
