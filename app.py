@@ -1844,6 +1844,15 @@ def driver_dashboard():
     return render_template("driver/driver_dashboard.html", overview=overview)
 
 
+@app.route("/tracker-device")
+@require_role("driver")
+def tracker_device():
+    conn = get_db()
+    overview = build_driver_overview(conn, session["user_id"])
+    conn.close()
+    return render_template("driver/tracker_device.html", overview=overview)
+
+
 @app.route("/start_trip", methods=["POST"])
 @require_role("driver")
 def start_trip():
@@ -1853,8 +1862,10 @@ def start_trip():
         conn.close()
         return jsonify({"error": "Driver already has an active trip."}), 400
 
-    bus_id = int(request.form.get("bus_id", 0))
-    route_id = int(request.form.get("route_id", 0))
+    bus_id = to_non_negative_int(request.form.get("bus_id", 0), 0)
+    route_id = to_non_negative_int(request.form.get("route_id", 0), 0)
+    trip_source = request.form.get("source", "").strip().lower()
+    source_label = "tracker device" if trip_source == "tracker-device" else "driver dashboard"
 
     bus_row = conn.execute("SELECT * FROM buses WHERE id = ? AND status = 'online'", (bus_id,)).fetchone()
     route_row = conn.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
@@ -1883,10 +1894,10 @@ def start_trip():
             route_id,
             to_db_time(started_at),
             to_db_time(started_at + timedelta(minutes=route_row["expected_duration_minutes"])),
-            "Started from driver dashboard",
+            f"Started from {source_label}",
         ),
     )
-    log_event(conn, session["user_id"], "driver", "Trip Started", f"Driver started {bus_row['plate_number']} on {route_row['route_name']}.")
+    log_event(conn, session["user_id"], "driver", "Trip Started", f"Driver started {bus_row['plate_number']} on {route_row['route_name']} from the {source_label}.")
     conn.commit()
     trip_id = cursor.lastrowid
     sync_trip_service_alert(conn, trip_id, True)

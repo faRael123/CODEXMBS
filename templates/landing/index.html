@@ -13,61 +13,157 @@
   <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <div class="home-shell">
     <header class="home-header">
-      <a href="{{ url_for('landing') }}" class="brand-lockup">
+      <a href="{{ url_for('landing') }}" class="brand-masthead">
         <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
-        <div>
-          <p class="brand-name">Gajoda Transportation Services</p>
-          <p class="brand-sub">Commuter Information and Minibus Tracking</p>
+        <div class="brand-copy">
+          <span class="eyebrow">Gapan City Transport Cooperative</span>
+          <h1>Gajoda Transport Service Cooperative</h1>
+          <p>Community-centered minibus service with live fleet visibility for commuters, dispatch, and operations staff.</p>
         </div>
       </a>
       <nav class="home-nav">
         <a href="{{ url_for('landing') }}">Home</a>
-        <a href="#company">About Gajoda</a>
-        <a href="{{ url_for('tracker') }}">Track Minibus</a>
-        <a href="#coverage">Route Coverage</a>
-        <a href="{{ url_for('login') }}" class="nav-cta">Staff Login</a>
+        <a href="#story">About</a>
+        <a href="#gallery">Gallery</a>
+        <a href="#coverage">Coverage</a>
+        <a href="{{ url_for('tracker') }}" class="nav-cta">Track Minibus</a>
+        <a href="{{ url_for('login') }}">Staff Login</a>
       </nav>
     </header>
 
     <main>
       <section class="hero-section">
         <div class="hero-copy">
-          <span class="eyebrow">Gapan City Public Transport Service</span>
-          <h1>Travel with more confidence using live minibus tracking and crowd visibility.</h1>
+          <span class="eyebrow">Public Transport With Live Visibility</span>
+          <h2>Track Gajoda minibuses with a landing page that actually looks like Gajoda.</h2>
           <p>
-            Gajoda Transportation Services is building a commuter-first public transport experience with real-time vehicle tracking,
-            route visibility, and crowd analytics to help riders make better boarding decisions.
+            The platform now highlights the real cooperative, the launch of the fleet, and the people behind the service while keeping
+            live tracking and commuter information one tap away.
           </p>
           <div class="hero-actions">
-            <a href="{{ url_for('tracker') }}" class="primary-button">Track Minibus</a>
-            <a href="#coverage" class="secondary-button">View Route Coverage</a>
-            <a href="{{ url_for('login') }}" class="text-link">Staff Login</a>
+            <a href="{{ url_for('tracker') }}" class="primary-button">Open Live Tracker</a>
+            <a href="#gallery" class="secondary-button">View Fleet Gallery</a>
+            <a href="#story" class="text-link">Learn About Gajoda</a>
           </div>
         </div>
-        <aside class="hero-panel">
-          <div class="hero-card accent-card">
-            <span>Live Buses</span>
-            <strong>{{ active_bus_count }}</strong>
-            <p>Units actively transmitting live trip data right now.</p>
+        <div class="hero-media">
+          <article class="hero-photo-card hero-photo-wide js-lightbox-trigger" tabindex="0" role="button" aria-label="Open fleet photo" data-image="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" data-title="Operational Fleet">
+            <img src="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" alt="Gajoda fleet lineup">
+            <div class="photo-caption">
+              <strong>Operational Fleet</strong>
+              <span>Real vehicles, real cooperative branding, and a clear public identity.</span>
+            </div>
+          </article>
+          <div class="hero-stats">
+            <article class="hero-stat accent">
+              <span>Live Buses</span>
+              <strong>{{ active_bus_count }}</strong>
+              <p>Units actively transmitting trip data right now.</p>
+            </article>
+            <article class="hero-stat">
+              <span>Average Load</span>
+              <strong>{{ avg_crowd }}%</strong>
+              <p>Live occupancy average from current tracked trips.</p>
+            </article>
+            <article class="hero-stat">
+              <span>High Crowd Alerts</span>
+              <strong>{{ high_count }}</strong>
+              <p>Trips operating near heavier demand conditions.</p>
+            </article>
           </div>
-          <div class="hero-card">
-            <span>Average Load</span>
-            <strong>{{ avg_crowd }}%</strong>
-            <p>System-wide live occupancy average from current tracked trips.</p>
+        </div>
+      </section>
+
+      <section class="photo-ribbon" id="gallery">
+        <article class="photo-feature tall js-lightbox-trigger" tabindex="0" role="button" aria-label="Open launch day photo" data-image="{{ url_for('static', filename='img/gajoda-launch-bus.jpg') }}" data-title="Launch Day">
+          <img src="{{ url_for('static', filename='img/gajoda-launch-bus.jpg') }}" alt="Gajoda launch bus">
+          <div class="photo-overlay">
+            <span class="eyebrow">Launch Day</span>
+            <strong>Public fleet reveal</strong>
           </div>
-          <div class="hero-card">
-            <span>High Crowd Alerts</span>
-            <strong>{{ high_count }}</strong>
-            <p>Trips currently approaching or operating at high load conditions.</p>
+        </article>
+        <article class="photo-feature tall js-lightbox-trigger" tabindex="0" role="button" aria-label="Open ribbon cutting photo" data-image="{{ url_for('static', filename='img/gajoda-ribbon.jpg') }}" data-title="Community Ribbon Cutting">
+          <img src="{{ url_for('static', filename='img/gajoda-ribbon.jpg') }}" alt="Gajoda ribbon cutting event">
+          <div class="photo-overlay">
+            <span class="eyebrow">Community</span>
+            <strong>Ribbon-cutting ceremony</strong>
           </div>
-        </aside>
+        </article>
+        <article class="photo-feature wide js-lightbox-trigger" tabindex="0" role="button" aria-label="Open office photo" data-image="{{ url_for('static', filename='img/gajoda-office.jpg') }}" data-title="Operations Workspace">
+          <img src="{{ url_for('static', filename='img/gajoda-office.jpg') }}" alt="Gajoda office and dispatch workspace">
+          <div class="photo-overlay">
+            <span class="eyebrow">Operations</span>
+            <strong>Administrative and dispatch workspace</strong>
+          </div>
+        </article>
+      </section>
+
+      <section class="story-section" id="story">
+        <div class="section-heading">
+          <span class="eyebrow">About The Cooperative</span>
+          <h2>A transport service shaped by local operations, cooperative leadership, and public-facing fleet service.</h2>
+        </div>
+        <div class="story-grid">
+          <article class="story-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open fleet operations photo" data-image="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" data-title="Visible Fleet Operations">
+            <div class="story-copy">
+              <h3>Visible fleet operations</h3>
+              <p>Gajoda’s public site now connects the real fleet and the live tracker, instead of looking like a generic transport demo.</p>
+            </div>
+            <img src="{{ url_for('static', filename='img/gajoda-fleet.jpg') }}" alt="Gajoda fleet parked at the terminal">
+          </article>
+          <article class="story-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open office and dispatch photo" data-image="{{ url_for('static', filename='img/gajoda-office.jpg') }}" data-title="Office and Dispatch Presence">
+            <div class="story-copy">
+              <h3>Office and dispatch presence</h3>
+              <p>The cooperative’s office environment helps ground the platform in real daily operations, not placeholder content.</p>
+            </div>
+            <img src="{{ url_for('static', filename='img/gajoda-office.jpg') }}" alt="Gajoda office interior">
+          </article>
+          <article class="story-card text-only">
+            <span>Service Focus</span>
+            <strong>Live tracking for commuters and monitoring for admin</strong>
+            <p>The public side stays focused on bus visibility and route awareness, while the admin side uses the same GPS stream for operations oversight.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="cooperative-section">
+        <div class="cooperative-media">
+          <article class="document-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open mission board photo" data-image="{{ url_for('static', filename='img/gajoda-mission.jpg') }}" data-title="Mission, Vision, and Values">
+            <img src="{{ url_for('static', filename='img/gajoda-mission.jpg') }}" alt="Gajoda mission vision values board">
+          </article>
+          <article class="document-card js-lightbox-trigger" tabindex="0" role="button" aria-label="Open organization chart photo" data-image="{{ url_for('static', filename='img/gajoda-org-chart.jpg') }}" data-title="Organizational Structure">
+            <img src="{{ url_for('static', filename='img/gajoda-org-chart.jpg') }}" alt="Gajoda organizational structure board">
+          </article>
+        </div>
+        <div class="cooperative-copy">
+          <span class="eyebrow">Cooperative Identity</span>
+          <h2>Mission-driven transport service with visible structure and accountability.</h2>
+          <p>
+            These visuals give the landing page more credibility by showing that the service is tied to a real cooperative organization,
+            not just a map and a few metrics.
+          </p>
+          <div class="value-points">
+            <article>
+              <strong>Community-rooted</strong>
+              <p>Launch and public events show the fleet as a shared local service, not an anonymous operator.</p>
+            </article>
+            <article>
+              <strong>Operationally real</strong>
+              <p>Office and organizational materials reinforce that dispatch, reporting, and live monitoring have a real place behind them.</p>
+            </article>
+            <article>
+              <strong>Commuter-facing</strong>
+              <p>The site keeps tracking and crowd visibility prominent so the page still serves riders first.</p>
+            </article>
+          </div>
+        </div>
       </section>
 
       {% if service_alerts %}
       <section class="alerts-section">
         <div class="section-heading">
           <span class="eyebrow">Service Alerts</span>
-          <h2>Published travel notices for commuters using the current Gajoda corridor.</h2>
+          <h2>Current commuter notices from the Gajoda corridor.</h2>
         </div>
         <div class="alerts-grid">
           {% for alert in service_alerts %}
@@ -80,127 +176,6 @@
         </div>
       </section>
       {% endif %}
-
-      <section class="info-section" id="company">
-        <div class="section-heading">
-          <span class="eyebrow">About Gajoda</span>
-          <h2>General information about the transport service, the fleet, and the people behind daily operations.</h2>
-        </div>
-        <div class="about-grid">
-          <article class="info-card">
-            <h3>Company Overview</h3>
-            <p>
-              Gajoda Transportation Services operates as a local public transport provider serving commuters who travel between
-              terminal points and nearby communities through minibus-based daily operations.
-            </p>
-          </article>
-          <article class="info-card">
-            <h3>Main Service Area</h3>
-            <p>
-              The current platform is focused on the Cabiao to Cabanatuan service corridor and nearby commuting activity,
-              with placeholders ready for final terminal, office, and route coverage details.
-            </p>
-          </article>
-          <article class="info-card">
-            <h3>Public Service Role</h3>
-            <p>
-              The service is presented as a commuter support platform that improves visibility into vehicle movement,
-              route availability, and crowd conditions before boarding.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section class="info-section company-section">
-        <div class="section-heading">
-          <span class="eyebrow">Company Profile</span>
-          <h2>Basic organizational details that can later be replaced with official Gajoda information.</h2>
-        </div>
-        <div class="company-grid">
-          <article class="company-card emphasis">
-            <span>Office / Dispatch Base</span>
-            <strong>Gapan City, Nueva Ecija</strong>
-            <p>Placeholder dispatch and service office location for the public website. Final office address and terminal references can be added later.</p>
-          </article>
-          <article class="company-card">
-            <span>Operational Fleet</span>
-            <strong>4 Minibus Units</strong>
-            <p>Current platform placeholders include four tracked units, which can later be replaced with the final official fleet inventory.</p>
-          </article>
-          <article class="company-card">
-            <span>Service Personnel</span>
-            <strong>Drivers, Conductors, Dispatch Staff</strong>
-            <p>The platform is designed around the people running daily transport operations, from drivers and conductors to management and dispatch.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="info-section">
-        <div class="section-heading">
-          <span class="eyebrow">Key Services</span>
-          <h2>Built to make public transport information clearer and more actionable.</h2>
-        </div>
-        <div class="services-grid">
-          <article class="feature-card">
-            <h3>Live Minibus Tracking</h3>
-            <p>Monitor active vehicles and view where they are currently operating on the route.</p>
-          </article>
-          <article class="feature-card">
-            <h3>Crowd Analytics</h3>
-            <p>See how passenger load is changing so commuters can decide when and where to ride.</p>
-          </article>
-          <article class="feature-card">
-            <h3>Route Visibility</h3>
-            <p>Give riders a clearer picture of service coverage and route direction at a glance.</p>
-          </article>
-          <article class="feature-card">
-            <h3>Operations Monitoring</h3>
-            <p>Support dispatch and management with demand, activity, and live fleet reporting.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="trust-section">
-        <div class="section-heading">
-          <span class="eyebrow">Why Ride With Gajoda</span>
-          <h2>Better visibility before boarding, not just after the bus arrives.</h2>
-        </div>
-        <div class="trust-grid">
-          <article class="trust-card">
-            <strong>Real-time awareness</strong>
-            <p>Check if a vehicle is already moving and whether the load is low, medium, or high.</p>
-          </article>
-          <article class="trust-card">
-            <strong>Commuter-first decisions</strong>
-            <p>Compare availability and crowd level before you choose to wait, board, or take the next unit.</p>
-          </article>
-          <article class="trust-card">
-            <strong>Transparent service data</strong>
-            <p>Understand route coverage, movement, and demand trends with clearer transport information.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="trust-section">
-        <div class="section-heading">
-          <span class="eyebrow">The People Behind The Service</span>
-          <h2>Gajoda is not only about vehicles and routes, but also about the people managing every trip.</h2>
-        </div>
-        <div class="people-grid">
-          <article class="people-card">
-            <h3>Drivers</h3>
-            <p>Drivers handle trip start, trip end, and live vehicle movement transmission throughout the route.</p>
-          </article>
-          <article class="people-card">
-            <h3>Conductors</h3>
-            <p>Conductors support passenger counting, route monitoring, and crowd analytics collection during active trips.</p>
-          </article>
-          <article class="people-card">
-            <h3>Dispatch and Management</h3>
-            <p>Admin users monitor fleet activity, track crowd patterns, review reports, and make service decisions from the dashboard.</p>
-          </article>
-        </div>
-      </section>
 
       <section class="coverage-section" id="coverage">
         <div class="section-heading">
@@ -217,81 +192,20 @@
             </div>
           </article>
           <article class="coverage-card">
-            <h3>Service Schedule</h3>
-            <p>Placeholder schedule for public release. Final dispatch windows, first trip, and last trip information will be updated later.</p>
+            <h3>Commuter Access</h3>
+            <p>Use the public tracker to check active buses, current crowd levels, and route activity before going to the terminal.</p>
           </article>
           <article class="coverage-card">
-            <h3>Pickup and Stop Info</h3>
-            <p>Placeholder coverage details for terminals, common stops, and service intervals will be published here as route information is finalized.</p>
+            <h3>Operations View</h3>
+            <p>Admin users use the same GPS activity for fleet awareness, reporting, and day-to-day service monitoring.</p>
           </article>
-        </div>
-      </section>
-
-      <section class="planner-section" id="planner">
-        <div class="section-heading">
-          <span class="eyebrow">Route Directions</span>
-          <h2>Search a direct trip between major Gajoda stops before you leave for the terminal.</h2>
-        </div>
-        <div class="planner-grid">
-          <article class="planner-card planner-builder">
-            <div class="planner-copy">
-              <h3>Origin to destination guidance</h3>
-              <p>First practical version for the Cabiao to Cabanatuan corridor: direct route match, stop order, estimated travel time, and demo fare guidance by passenger type.</p>
-            </div>
-            <div class="planner-form">
-              <label>
-                <span>Origin</span>
-                <input type="text" id="plannerOrigin" list="plannerStopOptions" placeholder="Select origin stop">
-              </label>
-              <label>
-                <span>Destination</span>
-                <input type="text" id="plannerDestination" list="plannerStopOptions" placeholder="Select destination stop">
-              </label>
-            </div>
-            <div class="planner-actions">
-              <button type="button" class="primary-button" id="plannerSearchBtn">Find Route</button>
-              <button type="button" class="secondary-button" id="plannerSwapBtn">Swap Stops</button>
-            </div>
-            <datalist id="plannerStopOptions"></datalist>
-            <div id="plannerResults" class="planner-results"></div>
-          </article>
-
-          <div class="planner-side">
-            <article class="planner-card">
-              <h3>Published routes</h3>
-              <div class="route-card-list" id="plannerRouteList">
-                {% for route in route_cards %}
-                <article class="route-mini-card">
-                  <strong>{{ route.routeName }}</strong>
-                  <span>{{ route.startPoint }} to {{ route.endPoint }}</span>
-                  <p>{{ route.expectedDurationMinutes }} min &middot; {{ route.distanceKm }} km &middot; Min fare PHP {{ route.minimumFare|round|int }} &middot; {{ route.availableBusCount }} live bus{% if route.availableBusCount != 1 %}es{% endif %}</p>
-                </article>
-                {% endfor %}
-              </div>
-            </article>
-
-            <article class="planner-card">
-              <h3>Stop directory</h3>
-              <div class="stop-directory-list" id="stopDirectoryList">
-                {% for stop in stop_directory_preview %}
-                <article class="stop-card">
-                  <strong>{{ stop.name }}</strong>
-                  <span>{{ stop.landmark }}</span>
-                  <p>{{ stop.routes|join(' · ') }}</p>
-                  <p>{% if stop.nextArrivals %}{% for arrival in stop.nextArrivals %}{{ arrival.routeName }}: {{ arrival.minutes }} min{% if not loop.last %} · {% endif %}{% endfor %}{% else %}No live arrival estimate right now{% endif %}</p>
-                </article>
-                {% endfor %}
-              </div>
-              <a href="{{ url_for('tracker') }}" class="text-link">Open the full tracker for live bus positions</a>
-            </article>
-          </div>
         </div>
       </section>
 
       <section class="preview-section">
         <div class="section-heading">
           <span class="eyebrow">Live Tracking Preview</span>
-          <h2>Current trip activity at a glance before opening the full tracker.</h2>
+          <h2>Current trip activity before opening the full tracker.</h2>
         </div>
         <div class="preview-grid">
           <article class="preview-card metrics-card">
@@ -332,16 +246,23 @@
     <footer class="home-footer">
       <div>
         <strong>Gajoda Transportation Services</strong>
-        <p>Placeholder company information for contact details, service office hours, and commuter support channels.</p>
+        <p>Built for commuters who need faster visibility into minibus movement, route service, and live trip conditions.</p>
       </div>
       <div class="footer-links">
         <a href="{{ url_for('landing') }}">Home</a>
-        <a href="#company">About Gajoda</a>
+        <a href="#story">About</a>
+        <a href="#gallery">Gallery</a>
         <a href="{{ url_for('tracker') }}">Track Minibus</a>
-        <a href="#coverage">Route Coverage</a>
         <a href="{{ url_for('login') }}">Staff Login</a>
       </div>
     </footer>
+  </div>
+  <div class="lightbox-backdrop" id="landingLightbox" hidden aria-hidden="true">
+    <button type="button" class="lightbox-close" id="landingLightboxClose" aria-label="Close enlarged image">Close</button>
+    <figure class="lightbox-figure">
+      <img id="landingLightboxImage" src="" alt="">
+      <figcaption id="landingLightboxCaption"></figcaption>
+    </figure>
   </div>
   <script>
     window.liveBuses = {{ buses_json|safe }};
@@ -351,5 +272,66 @@
   </script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script>
+    const lightbox = document.getElementById('landingLightbox');
+    const lightboxImage = document.getElementById('landingLightboxImage');
+    const lightboxCaption = document.getElementById('landingLightboxCaption');
+    const lightboxClose = document.getElementById('landingLightboxClose');
+    const lightboxTriggers = document.querySelectorAll('.js-lightbox-trigger');
+
+    function closeLightbox() {
+      if (!lightbox) return;
+      lightbox.hidden = true;
+      lightbox.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('lightbox-open');
+      lightboxImage.src = '';
+      lightboxImage.alt = '';
+      lightboxCaption.textContent = '';
+    }
+
+    function openLightbox(trigger) {
+      if (!lightbox || !trigger) return;
+      lightboxImage.src = trigger.dataset.image || '';
+      lightboxImage.alt = trigger.querySelector('img')?.alt || trigger.dataset.title || 'Landing photo';
+      lightboxCaption.textContent = trigger.dataset.title || '';
+      lightbox.hidden = false;
+      lightbox.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('lightbox-open');
+    }
+
+    lightboxTriggers.forEach((trigger) => {
+      trigger.addEventListener('click', () => openLightbox(trigger));
+      trigger.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openLightbox(trigger);
+        }
+      });
+    });
+
+    if (lightboxClose) {
+      lightboxClose.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeLightbox();
+      });
+    }
+
+    if (lightbox) {
+      lightbox.addEventListener('click', (event) => {
+        const clickedBackdrop = event.target === lightbox;
+        const clickedClose = event.target === lightboxClose;
+        if (clickedBackdrop || clickedClose) {
+          closeLightbox();
+        }
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeLightbox();
+      }
+    });
+  </script>
 </body>
 </html>
