@@ -7,10 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <div class="driver-shell">
     <header class="driver-topbar">
       <div>
@@ -30,8 +30,9 @@
       <article class="setup-panel">
         <div class="panel-head">
           <h2>Trip Control</h2>
-          <span>Start and end route service</span>
+          <span>Start service, keep GPS running, and end the trip cleanly</span>
         </div>
+        <p class="panel-copy">This page is intentionally limited to driver essentials. The driver only selects the unit, starts the trip, allows GPS transmission, and ends service.</p>
 
         {% if overview.active_trip %}
         <div class="trip-status live">
@@ -41,10 +42,10 @@
         </div>
         <div class="status-strip">
           <span class="status-chip active">Trip Active</span>
-          <span id="trackingStatus" class="status-chip neutral">Tracking is currently off</span>
+          <span id="trackingStatus" class="status-chip neutral">GPS is currently off</span>
         </div>
         <div class="button-row">
-          <button id="trackingBtn" class="primary tracking">Enable Live Tracking</button>
+          <button id="trackingBtn" class="primary tracking" type="button" disabled>GPS Required During Trip</button>
           <button id="endTripBtn" class="primary danger">End Trip</button>
         </div>
         {% else %}
@@ -54,7 +55,7 @@
             <select name="bus_id" required>
               <option value="">Choose an online bus</option>
               {% for bus in overview.available_buses %}
-              <option value="{{ bus.id }}">{{ bus.plate_number }} · {{ bus.capacity }} seats</option>
+              <option value="{{ bus.id }}">{{ bus.plate_number }} - {{ bus.capacity }} seats</option>
               {% endfor %}
             </select>
           </label>
@@ -69,7 +70,7 @@
           </label>
           <div class="status-strip">
             <span class="status-chip neutral">No Active Trip</span>
-            <span class="status-chip neutral">Tracking unavailable until trip starts</span>
+            <span class="status-chip neutral">GPS starts after trip activation</span>
           </div>
           <div class="button-row">
             <button id="startTripBtn" type="submit" class="primary">Start Trip</button>
@@ -78,36 +79,28 @@
         </form>
         {% endif %}
 
-        <div class="metric-grid">
+        <div class="operation-grid">
           <article class="metric-card">
-            <span>Occupancy</span>
-            <strong>{{ overview.trip_metrics.occupancy }}/{{ overview.trip_metrics.capacity }}</strong>
-            <small>{{ overview.trip_metrics.crowd_level }} crowd level</small>
+            <span>Assigned Flow</span>
+            <strong>Driver</strong>
+            <small>Select bus, start trip, keep GPS running, and end trip.</small>
           </article>
           <article class="metric-card">
-            <span>Next Stop</span>
-            <strong>{{ overview.trip_metrics.next_stop }}</strong>
-            <small>Latest conductor update or route endpoint</small>
+            <span>GPS Status</span>
+            <strong id="gpsState">{{ 'Ready to transmit' if overview.active_trip else 'Waiting for trip start' }}</strong>
+            <small>{% if overview.trip_metrics.last_gps_at %}Last GPS log: {{ overview.trip_metrics.last_gps_at }}{% else %}No GPS update has been sent yet.{% endif %}</small>
           </article>
           <article class="metric-card">
             <span>Trip Duration</span>
             <strong id="tripDuration">{{ overview.trip_metrics.trip_duration }}</strong>
-            <small>Live elapsed time</small>
+            <small>Elapsed time for the active trip.</small>
           </article>
           <article class="metric-card">
-            <span>Crowd Updates</span>
-            <strong>{{ overview.trip_metrics.updates_count }}</strong>
-            <small>Records received</small>
+            <span>Current Stop</span>
+            <strong>{{ overview.trip_metrics.next_stop }}</strong>
+            <small>Nearest corridor stop based on the latest trip GPS update.</small>
           </article>
         </div>
-      </article>
-
-      <article class="map-panel">
-        <div class="panel-head">
-          <h2>Route Map</h2>
-          <span>Trip visualization for the selected route</span>
-        </div>
-        <div id="driverMap"></div>
       </article>
     </section>
 
@@ -116,13 +109,14 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script>
     const activeTrip = {{ overview.active_trip|tojson }};
     const startTripForm = document.getElementById('startTripForm');
     const endTripBtn = document.getElementById('endTripBtn');
     const trackingBtn = document.getElementById('trackingBtn');
     const trackingStatus = document.getElementById('trackingStatus');
+    const gpsState = document.getElementById('gpsState');
     let watchId = null;
 
     if (startTripForm) {
@@ -145,6 +139,9 @@
 
     if (endTripBtn) {
       endTripBtn.addEventListener('click', async () => {
+        if (!window.confirm('Are you sure you want to end this trip?')) {
+          return;
+        }
         if (watchId !== null && navigator.geolocation) {
           navigator.geolocation.clearWatch(watchId);
           watchId = null;
@@ -157,61 +154,6 @@
         }
         alert(result.error || 'Could not end trip.');
       });
-    }
-
-    const map = L.map('driverMap').setView([15.37, 120.94], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
-
-    function markerColor(level) {
-      if (level === 'High') return '#dc2626';
-      if (level === 'Medium') return '#ea580c';
-      return '#16a34a';
-    }
-
-    function createBusIcon(level) {
-      const fill = markerColor(level);
-      const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
-          <g fill="none" fill-rule="evenodd">
-            <path d="M21 3C11.6 3 6 6.8 6 13v12.5c0 2.2 1.8 4 4 4H11v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2h8v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2H32c2.2 0 4-1.8 4-4V13c0-6.2-5.6-10-15-10Z" fill="${fill}" stroke="#0f172a" stroke-width="1.5"/>
-            <rect x="10" y="10" width="22" height="8" rx="2.5" fill="#e0f2fe" stroke="#0f172a" stroke-width="1.2"/>
-            <path d="M10 22h22" stroke="#0f172a" stroke-width="1.4"/>
-            <circle cx="14" cy="28" r="3.2" fill="#111827"/>
-            <circle cx="28" cy="28" r="3.2" fill="#111827"/>
-          </g>
-        </svg>
-      `;
-
-      return L.icon({
-        iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-        iconSize: [42, 42],
-        iconAnchor: [21, 21],
-        popupAnchor: [0, -18]
-      });
-    }
-
-    let liveMarker = null;
-
-    if (activeTrip && activeTrip.coords_json) {
-      const coords = JSON.parse(activeTrip.coords_json || '[]');
-      if (coords.length) {
-        const line = L.polyline(coords, {
-          color: activeTrip.route_color || '#1d4ed8',
-          weight: 5
-        }).addTo(map);
-        L.marker(coords[0]).addTo(map).bindPopup(activeTrip.start_point);
-        L.marker(coords[coords.length - 1]).addTo(map).bindPopup(activeTrip.end_point);
-        const initialPoint = [
-          activeTrip.last_latitude || coords[Math.max(coords.length - 2, 0)][0],
-          activeTrip.last_longitude || coords[Math.max(coords.length - 2, 0)][1]
-        ];
-        liveMarker = L.marker(initialPoint, {
-          icon: createBusIcon('{{ overview.trip_metrics.crowd_level }}')
-        }).addTo(map).bindPopup(activeTrip.plate_number);
-        map.fitBounds(line.getBounds(), { padding: [20, 20] });
-      }
     }
 
     if (activeTrip && activeTrip.started_at) {
@@ -246,6 +188,9 @@
       trackingStatus.textContent = message;
       trackingStatus.classList.toggle('error', isError);
       trackingStatus.classList.toggle('live', !isError && message.toLowerCase().includes('active'));
+      if (gpsState) {
+        gpsState.textContent = isError ? 'GPS needs attention' : 'GPS running';
+      }
     }
 
     function startTracking() {
@@ -255,13 +200,13 @@
       }
 
       if (watchId !== null) {
-        setTrackingStatus('Live tracking is already running.');
+        setTrackingStatus('GPS transmission is already running.');
         return;
       }
 
-      setTrackingStatus('Waiting for your current location...');
+      setTrackingStatus('Waiting for current location...');
       if (trackingBtn) {
-        trackingBtn.textContent = 'Tracking Enabled';
+        trackingBtn.textContent = 'GPS Locked On';
         trackingBtn.disabled = true;
       }
 
@@ -270,32 +215,22 @@
           const latitude = position.coords.latitude;
           const longitude = position.coords.longitude;
 
-          if (liveMarker) {
-            liveMarker.setLatLng([latitude, longitude]);
-          } else {
-            liveMarker = L.marker([latitude, longitude], {
-              icon: createBusIcon('{{ overview.trip_metrics.crowd_level }}')
-            }).addTo(map);
-          }
-
-          map.setView([latitude, longitude], 14);
-
           try {
             const result = await pushLocation(latitude, longitude);
             if (result.success) {
-              setTrackingStatus(`Live tracking active. Last update: ${new Date().toLocaleTimeString()}`);
+              setTrackingStatus(`GPS active. Last update: ${new Date().toLocaleTimeString()}`);
             } else {
               setTrackingStatus(result.error || 'Location update failed.', true);
             }
           } catch (error) {
-            setTrackingStatus('Location update failed. Check server connection.', true);
+            setTrackingStatus('GPS update failed. Check server connection.', true);
           }
         },
         () => {
           setTrackingStatus('Location permission denied or unavailable.', true);
           if (trackingBtn) {
-            trackingBtn.textContent = 'Enable Live Tracking';
-            trackingBtn.disabled = false;
+            trackingBtn.textContent = 'GPS Permission Required';
+            trackingBtn.disabled = true;
           }
         },
         {
@@ -306,11 +241,11 @@
       );
     }
 
-    if (trackingBtn) {
-      trackingBtn.addEventListener('click', startTracking);
+    if (!activeTrip && gpsState) {
+      gpsState.textContent = 'Waiting for trip start';
     }
 
-    if (activeTrip && sessionStorage.getItem('codexmbs_auto_track') === '1') {
+    if (activeTrip) {
       sessionStorage.removeItem('codexmbs_auto_track');
       startTracking();
     }

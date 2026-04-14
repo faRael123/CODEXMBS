@@ -9,6 +9,17 @@
   --danger: #b91c1c;
 }
 
+:root[data-theme="dark"] {
+  --bg: #101114;
+  --panel: #171c24;
+  --ink: #f8fafc;
+  --muted: #cbd5e1;
+  --line: #314152;
+  --brand: #ff5252;
+  --brand-dark: #ff7a7a;
+  --danger: #f87171;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -19,6 +30,25 @@ body {
     radial-gradient(circle at bottom right, rgba(214, 0, 0, 0.08), transparent 32%),
     var(--bg);
   color: var(--ink);
+}
+
+.theme-toggle {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 11px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.floating-theme-toggle {
+  position: fixed;
+  bottom: 22px;
+  right: 24px;
+  z-index: 4000;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
 }
 
 .login-shell {
@@ -49,6 +79,19 @@ body {
   border-radius: 28px;
   padding: 36px;
   box-shadow: 0 22px 60px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="dark"] .login-hero,
+:root[data-theme="dark"] .login-panel,
+:root[data-theme="dark"] .account-card {
+  background: rgba(23, 28, 36, 0.92);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .login-form input {
+  background: #111827;
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .eyebrow {

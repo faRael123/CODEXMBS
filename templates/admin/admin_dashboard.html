@@ -12,6 +12,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
   {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
   {% set route_count = overview.route_rows | length %}
@@ -57,7 +58,10 @@
           <button type="button" class="tab-link {% if active_tab == 'overview' %}active{% endif %}" data-target="overview">Overview</button>
           <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">Live Operations</button>
           <button type="button" class="tab-link {% if active_tab == 'analytics' %}active{% endif %}" data-target="analytics">Crowd Analytics</button>
+          <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">Commuter Info</button>
+          <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">Profiles</button>
           <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">Reports</button>
+          <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">Audit Trail</button>
           <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">Logs</button>
         </nav>
 
@@ -263,6 +267,13 @@
             </div>
             <canvas id="mixChart"></canvas>
           </article>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Top Boarding Stops</h3>
+              <span>Most active stops from transaction records</span>
+            </div>
+            <canvas id="stopChart"></canvas>
+          </article>
         </div>
 
         <div class="insights-grid">
@@ -273,14 +284,203 @@
           </article>
           {% endfor %}
         </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Stop-Level Demand</h3>
+            <span>Boarding and drop-off activity per stop</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Stop</th>
+                <th>Boarded</th>
+                <th>Dropped</th>
+                <th>Transactions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for stop in overview.stop_rows %}
+              <tr>
+                <td>{{ stop.stop_name }}</td>
+                <td>{{ stop.boarded }}</td>
+                <td>{{ stop.dropped }}</td>
+                <td>{{ stop.transactions }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <section id="commuter" class="content-section {% if active_tab == 'commuter' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Commuter Info</p>
+            <h2>Route publication, minimum fares, and public alerts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Published Route Settings</h3>
+              <span>Control route visibility and displayed minimum fares</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Status</th>
+                  <th>Regular Fare</th>
+                  <th>Discounted Fare</th>
+                  <th>Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in overview.route_rows %}
+                <tr>
+                  <td>{{ row.route_name }}</td>
+                  <td>{{ 'Published' if row.is_published else 'Hidden' }}</td>
+                  <td>PHP {{ row.minimum_fare }}</td>
+                  <td>PHP {{ row.discounted_fare }}</td>
+                  <td>
+                    <form method="POST" class="inline-status-form route-settings-form">
+                      <input type="hidden" name="action" value="update_route_settings">
+                      <input type="hidden" name="route_id" value="{{ row.id }}">
+                      <input type="hidden" name="redirect_tab" value="commuter">
+                      <select name="is_published">
+                        <option value="1" {% if row.is_published %}selected{% endif %}>Published</option>
+                        <option value="0" {% if not row.is_published %}selected{% endif %}>Hidden</option>
+                      </select>
+                      <input type="text" name="minimum_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(row.minimum_fare) }}" data-regular-fare-input>
+                      <input type="text" name="discounted_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(row.discounted_fare) }}" data-discounted-fare-input>
+                      <button type="submit" class="mini-button">Save</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Create Service Alert</h3>
+              <span>Publish notices for route delays, crowding, or dispatch advisories</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="action" value="create_service_alert">
+              <input type="hidden" name="redirect_tab" value="commuter">
+              <label>
+                <span>Title</span>
+                <input type="text" name="title" required>
+              </label>
+              <label>
+                <span>Message</span>
+                <textarea name="message" rows="4" required></textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>Severity</span>
+                  <select name="severity">
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Route</span>
+                  <select name="route_id">
+                    <option value="">System-wide</option>
+                    {% for row in overview.route_rows %}
+                    <option value="{{ row.id }}">{{ row.route_name }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>
+                  <span>Stop Name</span>
+                  <input type="text" name="stop_name" placeholder="Optional specific stop">
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">Publish Alert</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Active Alerts</h3>
+              <span>Currently visible on the commuter pages</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for alert in overview.service_alerts %}
+              <article class="alert-admin-item severity-{{ alert.severity }}">
+                <div>
+                  <strong>{{ alert.title }}</strong>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+                  <p>{{ alert.message }}</p>
+                </div>
+                <form method="POST">
+                  <input type="hidden" name="action" value="clear_service_alert">
+                  <input type="hidden" name="alert_id" value="{{ alert.id }}">
+                  <input type="hidden" name="redirect_tab" value="commuter">
+                  <button type="submit" class="mini-button">Clear</button>
+                </form>
+              </article>
+              {% else %}
+              <p class="section-copy">No active alerts.</p>
+              {% endfor %}
+            </div>
+          </article>
+        </div>
       </section>
 
       <section id="reports" class="content-section {% if active_tab == 'reports' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Reports</p>
-            <h2>Structured route-level reporting</h2>
+            <h2>Structured trip, bus, passenger, and revenue reporting</h2>
           </div>
+        </div>
+
+        <div class="stats-grid dense">
+          <article class="stat-card">
+            <span>Trips in Audit</span>
+            <strong>{{ overview.audit_summary.trip_count }}</strong>
+            <small>{{ overview.audit_summary.completed_trip_count }} completed</small>
+          </article>
+          <article class="stat-card">
+            <span>Total Revenue</span>
+            <strong>PHP {{ '%.2f'|format(overview.audit_summary.total_revenue) }}</strong>
+            <small>Across recorded trips</small>
+          </article>
+          <article class="stat-card">
+            <span>Passengers Boarded</span>
+            <strong>{{ overview.audit_summary.total_boarded }}</strong>
+            <small>Average {{ overview.audit_summary.average_trip_boarded }} per trip</small>
+          </article>
+          <article class="stat-card">
+            <span>Average Trip Revenue</span>
+            <strong>PHP {{ '%.2f'|format(overview.audit_summary.average_trip_revenue) }}</strong>
+            <small>{{ overview.audit_summary.active_trip_count }} active right now</small>
+          </article>
+          <article class="stat-card">
+            <span>Highest Revenue Trip</span>
+            <strong>
+              {% if overview.audit_summary.top_revenue_trip %}
+                {{ overview.audit_summary.top_revenue_trip.plate_number }}
+              {% else %}
+                No data
+              {% endif %}
+            </strong>
+            <small>
+              {% if overview.audit_summary.top_revenue_trip %}
+                PHP {{ '%.2f'|format(overview.audit_summary.top_revenue_trip.revenue) }}
+              {% else %}
+                Waiting for transactions
+              {% endif %}
+            </small>
+          </article>
         </div>
 
         <div class="report-grid">
@@ -310,16 +510,386 @@
               </tbody>
             </table>
           </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Bus Revenue and Passenger Breakdown</h3>
+              <span>Filter charts by bus to inspect passenger mix and revenue composition</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                <span>Select Bus</span>
+                <select id="reportBusFilter">
+                  <option value="all">All buses</option>
+                  {% for plate_number in overview.report_bus_analytics.bus_options %}
+                  <option value="{{ plate_number }}">{{ plate_number }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+            <div class="charts-grid">
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>Passenger Breakdown</h3>
+                  <span id="reportPassengerCaption">Passenger mix for all buses</span>
+                </div>
+                <canvas id="reportPassengerBreakdownChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>Revenue Breakdown</h3>
+                  <span id="reportRevenueCaption">Revenue composition for all buses</span>
+                </div>
+                <canvas id="reportRevenueBreakdownChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>Daily Passenger Totals</h3>
+                  <span>Daily totals for the selected bus</span>
+                </div>
+                <canvas id="reportDailyPassengersChart"></canvas>
+              </article>
+              <article class="panel">
+                <div class="panel-head">
+                  <h3>Daily Revenue Totals</h3>
+                  <span>Daily revenue trend for the selected bus</span>
+                </div>
+                <canvas id="reportDailyRevenueChart"></canvas>
+              </article>
+            </div>
+          </article>
+
         </div>
+      </section>
+
+      <section id="profiles" class="content-section {% if active_tab == 'profiles' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Profiles</p>
+            <h2>Create new admin, driver, and conductor accounts</h2>
+          </div>
+        </div>
+
+        <div class="report-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Create Profile</h3>
+              <span>Add a new staff account for the system</span>
+            </div>
+            <form method="POST" class="stack-form">
+              <input type="hidden" name="action" value="create_profile">
+              <input type="hidden" name="redirect_tab" value="profiles">
+              <div class="form-grid">
+                <label>
+                  <span>Full Name</span>
+                  <input type="text" name="full_name" required>
+                </label>
+                <label>
+                  <span>Username</span>
+                  <input type="text" name="username" required>
+                </label>
+                <label>
+                  <span>Email</span>
+                  <input type="email" name="email" required>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  <span>Password</span>
+                  <input type="text" name="password" required>
+                </label>
+                <label>
+                  <span>Role</span>
+                  <select name="role" required>
+                    <option value="driver">Driver</option>
+                    <option value="conductor">Conductor</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" class="solid-button form-submit">Create Profile</button>
+            </form>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Existing Profiles</h3>
+              <span>Current staff accounts in the system</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for user in overview.user_rows %}
+                <tr>
+                  <td>{{ user.full_name }}</td>
+                  <td>{{ user.username }}</td>
+                  <td>{{ user.email }}</td>
+                  <td>{{ user.role }}</td>
+                  <td>{{ user.created_at }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+
+          {% if false %}
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Bus-Specific Daily Tabulation</h3>
+              <span>Each bus has its own section, including status when there is no trip data</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for bus in overview.bus_report_sections %}
+              <article class="alert-admin-item">
+                <div>
+                  <strong>{{ bus.plate_number }}</strong>
+                  <span>Status: {{ bus.status }} / {{ bus.trip_status }} · {{ bus.route_name }}</span>
+                  <p>
+                    Total passengers: {{ bus.total_passengers }}.
+                    Student {{ bus.passengers_by_type.student }}, PWD {{ bus.passengers_by_type.pwd }}, Senior {{ bus.passengers_by_type.senior }}, Regular {{ bus.passengers_by_type.regular }}.
+                    Total revenue: PHP {{ '%.2f'|format(bus.total_revenue) }}.
+                    Student PHP {{ '%.2f'|format(bus.revenue_by_type.student) }}, PWD PHP {{ '%.2f'|format(bus.revenue_by_type.pwd) }}, Senior PHP {{ '%.2f'|format(bus.revenue_by_type.senior) }}, Regular PHP {{ '%.2f'|format(bus.revenue_by_type.regular) }}.
+                  </p>
+                </div>
+                {% if bus.rows %}
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Driver</th>
+                      <th>Route</th>
+                      <th>Passenger Breakdown</th>
+                      <th>Total Pax</th>
+                      <th>Revenue Breakdown</th>
+                      <th>Total Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in bus.rows %}
+                    <tr>
+                      <td>{{ row.service_date }}<br><small>{{ row.trip_count }} trip(s)</small></td>
+                      <td>{{ row.driver_name }}</td>
+                      <td>{{ row.route_name }}</td>
+                      <td>Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}</td>
+                      <td>{{ row.total_passengers }}</td>
+                      <td>Student PHP {{ '%.2f'|format(row.student_revenue) }}, PWD PHP {{ '%.2f'|format(row.pwd_revenue) }}, Senior PHP {{ '%.2f'|format(row.senior_revenue) }}, Regular PHP {{ '%.2f'|format(row.regular_revenue) }}</td>
+                      <td>PHP {{ '%.2f'|format(row.total_revenue) }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% else %}
+                <p class="section-copy">No trip data recorded for this bus yet.</p>
+                {% endif %}
+              </article>
+              {% else %}
+              <p class="section-copy">No bus report data available yet.</p>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
+        </div>
+      </section>
+
+      <section id="audit" class="content-section {% if active_tab == 'audit' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Audit Trail</p>
+            <h2>Trip-level audit plus transaction-level history for review</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Detailed Trip Audit</h3>
+            <span>Bus-centered audit view matching manual revenue and passenger review workflows</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Trip</th>
+                <th>Team</th>
+                <th>Passenger Mix</th>
+                <th>Net Passengers</th>
+                <th>Revenue</th>
+                <th>Crowd Updates</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.trip_audit_rows %}
+              <tr>
+                <td>
+                  {{ row.plate_number }} / {{ row.route_name }}<br>
+                  <small>#{{ row.trip_id }} · {{ row.started_at }}</small>
+                </td>
+                <td>
+                  {{ row.driver_name or 'No driver' }}<br>
+                  <small>{{ row.conductor_name or 'No conductor' }}</small>
+                </td>
+                <td>
+                  Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}
+                </td>
+                <td>
+                  {{ row.net_passengers }}<br>
+                  <small>{{ row.passengers_boarded }} in / {{ row.passengers_dropped }} out</small>
+                </td>
+                <td>
+                  PHP {{ '%.2f'|format(row.revenue) }}<br>
+                  <small>{{ row.stops_served }} stops served</small>
+                </td>
+                <td>
+                  {{ row.crowd_updates }}<br>
+                  <small>{{ row.latest_stop }}</small>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">No trip audit data yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Recent Trip Transactions</h3>
+            <span>Latest boarding and drop events captured by the system</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Trip</th>
+                <th>Route</th>
+                <th>Event</th>
+                <th>Stop</th>
+                <th>Conductor</th>
+                <th>Occupancy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.recent_transaction_audit %}
+              <tr>
+                <td>{{ row.recorded_at }}</td>
+                <td>{{ row.plate_number }} / #{{ row.trip_id }}</td>
+                <td>{{ row.route_name }}</td>
+                <td>{{ row.event_type }} {{ row.quantity }} {{ row.passenger_type }}</td>
+                <td>{{ row.stop_name }}</td>
+                <td>{{ row.conductor_name or 'Unassigned' }}</td>
+                <td>{{ row.occupancy_after }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>Bus-Specific Daily Tabulation</h3>
+            <span>Each bus has its own section, including status when there is no trip data</span>
+          </div>
+          <div class="alert-admin-list">
+            {% for bus in overview.bus_report_sections %}
+            <article class="alert-admin-item">
+              <div>
+                <strong>{{ bus.plate_number }}</strong>
+                <span>Status: {{ bus.status }} / {{ bus.trip_status }} · {{ bus.route_name }}</span>
+              </div>
+              {% if bus.rows %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Driver</th>
+                    <th>Route</th>
+                    <th>Passenger Breakdown</th>
+                    <th>Total Pax</th>
+                    <th>Revenue Breakdown</th>
+                    <th>Total Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in bus.rows %}
+                  <tr>
+                    <td>{{ row.service_date }}<br><small>#{{ row.trip_id }}</small></td>
+                    <td>{{ row.driver_name }}</td>
+                    <td>{{ row.route_name }}</td>
+                    <td>Student {{ row.student_count }}, PWD {{ row.pwd_count }}, Senior {{ row.senior_count }}, Regular {{ row.regular_count }}</td>
+                    <td>{{ row.total_passengers }}</td>
+                    <td>Student PHP {{ '%.2f'|format(row.student_revenue) }}, PWD PHP {{ '%.2f'|format(row.pwd_revenue) }}, Senior PHP {{ '%.2f'|format(row.senior_revenue) }}, Regular PHP {{ '%.2f'|format(row.regular_revenue) }}</td>
+                    <td>PHP {{ '%.2f'|format(row.total_revenue) }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+              <p class="section-copy">No trip data recorded for this bus yet.</p>
+              {% endif %}
+            </article>
+            {% else %}
+            <p class="section-copy">No bus report data available yet.</p>
+            {% endfor %}
+          </div>
+        </article>
       </section>
 
       <section id="logs" class="content-section {% if active_tab == 'logs' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Logs</p>
-            <h2>Recent operational activity</h2>
+            <h2>Recent operational activity and staff attendance</h2>
           </div>
         </div>
+
+        <section class="panel log-panel">
+          <div class="panel-head">
+            <h3>Staff Attendance</h3>
+            <span>Login time with linked trip assignment, route, and trip timing</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Login Time</th>
+                <th>Trip</th>
+                <th>Trip Start</th>
+                <th>Trip End</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in overview.attendance_rows %}
+              <tr>
+                <td>{{ row.full_name }}<br><small>{{ row.role }} / {{ row.username }}</small></td>
+                <td>{{ row.login_time }}</td>
+                <td>
+                  {% if row.trip_id %}
+                    {{ row.plate_number }} / {{ row.route_name }}<br><small>Trip #{{ row.trip_id }}</small>
+                  {% else %}
+                    No trip linked
+                  {% endif %}
+                </td>
+                <td>{{ row.trip_started_at or 'No trip start' }}</td>
+                <td>{{ row.trip_ended_at or 'Still active / none' }}</td>
+                <td>{{ row.trip_status or 'attendance only' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="6">No attendance data recorded yet.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </section>
 
         <section class="panel log-panel">
           <div class="panel-head">
@@ -352,6 +922,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script>
     const chartData = {{ overview.charts|tojson }};
     const initialAdminTab = {{ active_tab|tojson }};
@@ -465,6 +1036,191 @@
         }]
       },
       options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    new Chart(document.getElementById('stopChart'), {
+      type: 'bar',
+      data: {
+        labels: chartData.stop_labels,
+        datasets: [{
+          label: 'Boarded passengers',
+          data: chartData.stop_values,
+          backgroundColor: '#2563eb',
+          borderRadius: 10
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const reportBusAnalytics = chartData.report_bus_analytics || { all: {}, buses: {}, bus_options: [] };
+    const reportBusFilter = document.getElementById('reportBusFilter');
+    const reportPassengerCaption = document.getElementById('reportPassengerCaption');
+    const reportRevenueCaption = document.getElementById('reportRevenueCaption');
+
+    function getReportDataset(busKey) {
+      if (busKey && busKey !== 'all' && reportBusAnalytics.buses && reportBusAnalytics.buses[busKey]) {
+        return reportBusAnalytics.buses[busKey];
+      }
+      return reportBusAnalytics.all || {};
+    }
+
+    const reportPassengerBreakdownChart = new Chart(document.getElementById('reportPassengerBreakdownChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Students', 'PWD', 'Senior', 'Regular'],
+        datasets: [{
+          data: [0, 0, 0, 0],
+          backgroundColor: ['#D60000', '#fb7185', '#f59e0b', '#374151']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const reportRevenueBreakdownChart = new Chart(document.getElementById('reportRevenueBreakdownChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Students', 'PWD', 'Senior', 'Regular'],
+        datasets: [{
+          label: 'Revenue',
+          data: [0, 0, 0, 0],
+          backgroundColor: ['#991b1b', '#e11d48', '#ea580c', '#1f2937'],
+          borderRadius: 10
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const reportDailyPassengersChart = new Chart(document.getElementById('reportDailyPassengersChart'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Passengers',
+          data: [],
+          borderColor: '#D60000',
+          backgroundColor: 'rgba(214, 0, 0, 0.12)',
+          fill: true,
+          tension: 0.35
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    const reportDailyRevenueChart = new Chart(document.getElementById('reportDailyRevenueChart'), {
+      type: 'bar',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Revenue',
+          data: [],
+          backgroundColor: '#2563eb',
+          borderRadius: 10
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    function updateReportCharts(busKey = 'all') {
+      const dataset = getReportDataset(busKey);
+      const passengerTotals = dataset.passenger_totals || {};
+      const revenueTotals = dataset.revenue_totals || {};
+      const labels = dataset.labels || [];
+      const dailyPassengers = dataset.daily_passengers || [];
+      const dailyRevenue = dataset.daily_revenue || [];
+      const caption = busKey === 'all'
+        ? 'all buses'
+        : `${busKey}${dataset.route_name ? ` · ${dataset.route_name}` : ''}`;
+
+      if (reportPassengerCaption) {
+        reportPassengerCaption.textContent = `Passenger mix for ${caption}`;
+      }
+      if (reportRevenueCaption) {
+        reportRevenueCaption.textContent = `Revenue composition for ${caption}`;
+      }
+
+      reportPassengerBreakdownChart.data.datasets[0].data = [
+        passengerTotals.student || 0,
+        passengerTotals.pwd || 0,
+        passengerTotals.senior || 0,
+        passengerTotals.regular || 0,
+      ];
+      reportPassengerBreakdownChart.update();
+
+      reportRevenueBreakdownChart.data.datasets[0].data = [
+        revenueTotals.student || 0,
+        revenueTotals.pwd || 0,
+        revenueTotals.senior || 0,
+        revenueTotals.regular || 0,
+      ];
+      reportRevenueBreakdownChart.update();
+
+      reportDailyPassengersChart.data.labels = labels;
+      reportDailyPassengersChart.data.datasets[0].data = dailyPassengers;
+      reportDailyPassengersChart.update();
+
+      reportDailyRevenueChart.data.labels = labels;
+      reportDailyRevenueChart.data.datasets[0].data = dailyRevenue;
+      reportDailyRevenueChart.update();
+    }
+
+    if (reportBusFilter) {
+      reportBusFilter.addEventListener('change', (event) => {
+        updateReportCharts(event.target.value);
+      });
+    }
+    updateReportCharts(reportBusFilter ? reportBusFilter.value : 'all');
+
+    function roundPeso(value) {
+      return Math.max(Math.round(Number(value) || 0), 1);
+    }
+
+    function suggestedDiscountedFare(regularFare) {
+      return roundPeso((Number(regularFare) || 0) * 0.8);
+    }
+
+    document.querySelectorAll('.route-settings-form').forEach((form) => {
+      const regularInput = form.querySelector('[data-regular-fare-input]');
+      const discountedInput = form.querySelector('[data-discounted-fare-input]');
+      if (!regularInput || !discountedInput) {
+        return;
+      }
+
+      let discountedManuallyEdited = false;
+
+      const sanitizeDigits = (input) => {
+        input.value = String(input.value || '').replace(/\D+/g, '');
+      };
+
+      const syncDiscountedFare = () => {
+        sanitizeDigits(regularInput);
+        if (discountedManuallyEdited) {
+          return;
+        }
+        discountedInput.value = String(suggestedDiscountedFare(regularInput.value));
+      };
+
+      regularInput.addEventListener('input', () => {
+        sanitizeDigits(regularInput);
+        syncDiscountedFare();
+      });
+      discountedInput.addEventListener('input', () => {
+        sanitizeDigits(discountedInput);
+        discountedManuallyEdited = true;
+      });
+      regularInput.addEventListener('keydown', (event) => {
+        if (['e', 'E', '+', '-', '.', ','].includes(event.key)) {
+          event.preventDefault();
+        }
+      });
+      discountedInput.addEventListener('keydown', (event) => {
+        if (['e', 'E', '+', '-', '.', ','].includes(event.key)) {
+          event.preventDefault();
+        }
+      });
+      regularInput.addEventListener('change', syncDiscountedFare);
+      discountedInput.addEventListener('change', () => sanitizeDigits(discountedInput));
+
+      syncDiscountedFare();
     });
 
     let liveBuses = chartData.live_buses || [];

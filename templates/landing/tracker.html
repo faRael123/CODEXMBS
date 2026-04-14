@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Minibus | Gajoda Transportation Services</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+</head>
+<body>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
+  <div class="landing-shell">
+    <header class="landing-topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menuToggle" aria-label="Open menu">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <div class="brand-lockup compact">
+          <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
+          <div>
+            <p class="brand-name">Gajoda Transportation Services</p>
+            <p class="brand-sub">Live Minibus Tracker</p>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tracker-nav" aria-label="Tracker section navigation">
+      <a href="#tracker-top">Top</a>
+      {% if service_alerts %}<a href="#service-alerts">Alerts</a>{% endif %}
+      <a href="#route-planner">Planner</a>
+      <a href="#live-map">Map</a>
+      <a href="#available-buses">Buses</a>
+    </nav>
+
+    <section class="landing-hero commuter-focus" id="tracker-top">
+      <div class="location-card">
+        <span class="location-label">Your location</span>
+        <strong id="userLocationText">Detecting your location...</strong>
+        <p class="hero-lead">Track active minibuses, compare crowd levels, and identify the nearest available trip before you ride.</p>
+        <div class="hero-stats">
+          <article>
+            <strong id="activeBusCount">{{ active_bus_count }}</strong>
+            <span>Active buses</span>
+          </article>
+          <article>
+            <strong id="avgCrowd">{{ avg_crowd }}</strong>
+            <span>Average load (%)</span>
+          </article>
+          <article>
+            <strong id="highCrowdCount">{{ high_count }}</strong>
+            <span>High crowd trips</span>
+          </article>
+        </div>
+        <div class="crowd-levels" id="crowdLevels" aria-label="Live crowd breakdown">
+          <div><span class="dot low"></span>Low {{ low_count }}</div>
+          <div><span class="dot medium"></span>Medium {{ medium_count }}</div>
+          <div><span class="dot high"></span>High {{ high_count }}</div>
+        </div>
+      </div>
+    </section>
+
+    {% if service_alerts %}
+    <section class="planner-panel-wrap" id="service-alerts">
+      <article class="planner-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Service Alerts</h2>
+            <span>Current advisories affecting routes, stops, and crowd conditions.</span>
+          </div>
+        </div>
+        <div class="stop-directory-list">
+          {% for alert in service_alerts %}
+          <article class="stop-card">
+            <strong>{{ alert.title }}</strong>
+            <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <p>{{ alert.message }}</p>
+          </article>
+          {% endfor %}
+        </div>
+      </article>
+    </section>
+    {% endif %}
+
+    <section class="planner-panel-wrap" id="route-planner">
+      <article class="planner-panel planner-panel-large">
+        <div class="planner-shell">
+          <div class="planner-main">
+            <div class="panel-head planner-head">
+              <div>
+                <h2>Commuter Route Planner</h2>
+                <span>Pick where you are and where you want to go. The planner will show the direct corridor trip, minimum fare, stop sequence, and live next-bus hints when available.</span>
+              </div>
+            </div>
+            <div class="planner-form planner-form-large">
+              <label class="planner-field planner-field-origin">
+                <span>Your origin</span>
+                <div class="origin-control">
+                  <select id="plannerOrigin">
+                    <option value="">Select origin</option>
+                  </select>
+                  <button type="button" class="ghost-action" id="useCurrentLocationBtn">Use Current Location</button>
+                </div>
+                <small>Choose your boarding stop manually, or use your current location to match the nearest published Gajoda stop.</small>
+              </label>
+              <label class="planner-field planner-field-destination">
+                <span>Choose destination</span>
+                <select id="plannerDestination">
+                  <option value="">Select destination</option>
+                </select>
+                <small id="plannerDestinationHint">Choose the city stop, terminal, or roadside pickup point you want to reach.</small>
+              </label>
+            </div>
+            <div id="plannerResults" class="planner-results planner-results-large"></div>
+          </div>
+          <aside class="planner-directory planner-directory-wide">
+            <section class="planner-info-card">
+              <h3>Stop Directory</h3>
+              <div id="stopDirectoryList" class="stop-directory-list"></div>
+            </section>
+          </aside>
+        </div>
+      </article>
+    </section>
+
+    <section class="landing-main map-first">
+      <div class="map-panel priority-map" id="live-map">
+        <div class="panel-head">
+          <div>
+            <h2>Live Map</h2>
+            <span>Nearest bus and crowd status around your position</span>
+          </div>
+          <button class="ghost-action" id="locateMeBtn">Locate Me</button>
+        </div>
+        <div id="map"></div>
+      </div>
+
+      <aside class="list-panel" id="available-buses">
+        <div class="panel-head">
+          <div>
+            <h2>Available Buses</h2>
+            <span>Sort by nearest bus or capacity</span>
+          </div>
+          <select id="sortSelect" class="sort-select">
+            <option value="nearest">Nearest</option>
+            <option value="capacity_low">Lowest Capacity Load</option>
+            <option value="capacity_high">Highest Capacity Load</option>
+          </select>
+        </div>
+        <div id="busList" class="bus-list"></div>
+      </aside>
+    </section>
+
+    <footer class="landing-footer">
+      <div>
+        <strong>Gajoda Transportation Services</strong>
+        <p>Live commuter information with crowd analytics for daily minibus operations.</p>
+      </div>
+      <div class="footer-links">
+        <a href="{{ url_for('landing') }}">Home</a>
+        <a href="{{ url_for('login') }}">Staff Login</a>
+        <a href="#map">Map</a>
+        <a href="#busList">Buses</a>
+      </div>
+    </footer>
+  </div>
+
+  <div class="menu-overlay" id="menuOverlay">
+    <div class="menu-panel">
+      <div class="menu-head">
+        <h3>Menu</h3>
+        <button class="menu-close" id="menuClose" aria-label="Close menu">×</button>
+      </div>
+      <nav class="menu-links">
+        <a href="{{ url_for('landing') }}">Home</a>
+        <a href="{{ url_for('tracker') }}">Track Minibus</a>
+        {% if service_alerts %}<a href="#service-alerts">Service Alerts</a>{% endif %}
+        <a href="#route-planner">Route Planner</a>
+        <a href="#live-map">Live Map</a>
+        <a href="#available-buses">Available Buses</a>
+        <a href="{{ url_for('landing') }}#coverage">Route Coverage</a>
+        <a href="{{ url_for('login') }}">Staff Login</a>
+      </nav>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    window.liveBuses = {{ buses_json|safe }};
+    window.liveBusEndpoint = "{{ url_for('api_live_buses') }}";
+    window.publicCommuterEndpoint = "{{ url_for('api_public_commuter') }}";
+    window.commuterData = {{ commuter_data_json|safe }};
+  </script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
