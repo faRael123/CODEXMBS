@@ -39,6 +39,28 @@ ALTER TABLE routes ADD COLUMN minimum_fare DECIMAL(10,2) NOT NULL DEFAULT 15.00;
 ALTER TABLE routes ADD COLUMN discounted_fare DECIMAL(10,2) NOT NULL DEFAULT 12.00;
 ALTER TABLE routes ADD COLUMN display_order INT NOT NULL DEFAULT 0;
 
+CREATE TABLE IF NOT EXISTS stops (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    stop_name VARCHAR(150) NOT NULL UNIQUE,
+    latitude DECIMAL(10,6) NOT NULL,
+    longitude DECIMAL(10,6) NOT NULL,
+    landmark VARCHAR(180) NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS route_stops (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    route_id INT NOT NULL,
+    stop_id INT NOT NULL,
+    stop_sequence INT NOT NULL,
+    minutes_from_start INT NOT NULL DEFAULT 0,
+    CONSTRAINT fk_route_stops_route FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_route_stops_stop FOREIGN KEY (stop_id) REFERENCES stops(id) ON DELETE CASCADE
+);
+
+ALTER TABLE route_stops ADD CONSTRAINT uq_route_stop_sequence UNIQUE (route_id, stop_sequence);
+ALTER TABLE route_stops ADD CONSTRAINT uq_route_stop_pair UNIQUE (route_id, stop_id);
+
 CREATE TABLE IF NOT EXISTS trips (
     id INT AUTO_INCREMENT PRIMARY KEY,
     driver_id INT NULL,
@@ -97,6 +119,9 @@ CREATE TABLE IF NOT EXISTS trip_transactions (
     CONSTRAINT fk_trip_transactions_conductor FOREIGN KEY (conductor_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+ALTER TABLE trip_transactions ADD COLUMN origin_stop VARCHAR(150) NULL;
+ALTER TABLE trip_transactions ADD COLUMN destination_stop VARCHAR(150) NULL;
+
 CREATE TABLE IF NOT EXISTS gps_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     trip_id INT NOT NULL,
@@ -141,3 +166,4 @@ CREATE INDEX idx_trip_transactions_trip_id ON trip_transactions(trip_id);
 CREATE INDEX idx_trip_transactions_recorded_at ON trip_transactions(recorded_at);
 CREATE INDEX idx_gps_logs_trip_id ON gps_logs(trip_id);
 CREATE INDEX idx_service_alerts_active ON service_alerts(is_active, created_at);
+CREATE INDEX idx_route_stops_route_sequence ON route_stops(route_id, stop_sequence);

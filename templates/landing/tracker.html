@@ -101,10 +101,12 @@
               <label class="planner-field planner-field-origin">
                 <span>Your origin</span>
                 <div class="origin-control">
-                  <input type="text" id="plannerOrigin" placeholder="Use your current location" readonly>
+                  <select id="plannerOrigin">
+                    <option value="">Select origin</option>
+                  </select>
                   <button type="button" class="ghost-action" id="useCurrentLocationBtn">Use Current Location</button>
                 </div>
-                <small>We resolve your current location to the nearest published Gajoda boarding stop.</small>
+                <small>Choose your boarding stop manually, or use your current location to match the nearest published Gajoda stop.</small>
               </label>
               <label class="planner-field planner-field-destination">
                 <span>Choose destination</span>
@@ -114,15 +116,9 @@
                 <small id="plannerDestinationHint">Choose the city stop, terminal, or roadside pickup point you want to reach.</small>
               </label>
             </div>
-            <datalist id="plannerStopOptions"></datalist>
             <div id="plannerResults" class="planner-results planner-results-large"></div>
           </div>
           <aside class="planner-directory planner-directory-wide">
-            <section class="planner-info-card">
-              <h3>Available destinations</h3>
-              <p id="plannerDestinationSummary">Select a destination to view route direction, estimated travel time, and fare guidance.</p>
-              <div id="plannerDestinationChips" class="planner-destination-chips"></div>
-            </section>
             <section class="planner-info-card">
               <h3>Stop Directory</h3>
               <div id="stopDirectoryList" class="stop-directory-list"></div>

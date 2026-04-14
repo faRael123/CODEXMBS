@@ -77,7 +77,7 @@ def bootstrap_db():
         try:
             db_cursor.execute(statement)
         except Error as exc:
-            if getattr(exc, "errno", None) not in {1060, 1061}:
+            if getattr(exc, "errno", None) not in {1060, 1061, 1826}:
                 raise
 
     db_conn.commit()

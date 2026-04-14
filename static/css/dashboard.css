@@ -40,7 +40,7 @@ body {
 
 .floating-theme-toggle {
   position: fixed;
-  top: 22px;
+  bottom: 22px;
   right: 24px;
   z-index: 4000;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);

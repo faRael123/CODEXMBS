@@ -406,31 +406,15 @@ html {
   line-height: 1.55;
 }
 
-.planner-direction-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(213, 37, 37, 0.1);
-  border: 1px solid rgba(213, 37, 37, 0.22);
-  color: var(--brand);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 .planner-badges,
-.planner-meta,
-.planner-stop-chips {
+.planner-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
 .planner-badges span,
-.planner-meta span,
-.planner-stop-chips span {
+.planner-meta span {
   display: inline-flex;
   align-items: center;
   min-height: 34px;
@@ -440,12 +424,6 @@ html {
   border: 1px solid var(--line);
   color: var(--muted);
   font-weight: 600;
-}
-
-.planner-stop-chips span.active {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: white;
 }
 
 .planner-fares {
@@ -697,7 +675,7 @@ html {
 
 .floating-theme-toggle {
   position: fixed;
-  top: 22px;
+  bottom: 22px;
   right: 24px;
   z-index: 4000;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
@@ -917,9 +895,7 @@ html {
   }
 
   .planner-badges span,
-  .planner-meta span,
-  .planner-stop-chips span,
-  .planner-direction-badge {
+  .planner-meta span {
     width: 100%;
     justify-content: flex-start;
     border-radius: 14px;

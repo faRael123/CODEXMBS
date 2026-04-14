@@ -18,11 +18,11 @@
           <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
           <div>
             <p class="brand-name">Gajoda Transportation Services</p>
-            <p class="brand-sub">Conductor Terminal</p>
+            <p class="brand-sub">Conductor Mock Ticketing</p>
           </div>
         </div>
         <p class="eyebrow">Conductor Terminal</p>
-        <h1>Passenger Count Terminal</h1>
+        <h1>Destination-first boarding capture</h1>
       </div>
       <a href="{{ url_for('logout') }}" class="logout-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
     </header>
@@ -31,8 +31,8 @@
     <section class="setup-panel">
       <div class="setup-intro">
         <span class="status idle">Waiting For Driver</span>
-        <h2>Attach to an active trip before counting starts.</h2>
-        <p>This terminal opens once the conductor is linked to a live trip.</p>
+        <h2>Attach to an active Cabiao-Cabanatuan trip.</h2>
+        <p>The mock terminal saves tickets to the database without printing while keeping the origin stop tied to live GPS.</p>
       </div>
       <form method="POST" class="setup-card attach-card">
         <input type="hidden" name="action" value="attach_trip">
@@ -48,11 +48,11 @@
         <label>
           <span>Monitoring Mode</span>
           <select name="monitoring_mode">
-            <option value="manual" selected>Counting Terminal + Auto Location</option>
-            <option value="auto">Auto Location Only</option>
+            <option value="manual" selected>Ticket Mock + Auto Origin</option>
+            <option value="auto">Auto Only</option>
           </select>
         </label>
-        <button type="submit">Open Counting Terminal</button>
+        <button type="submit">Open Ticket Mock</button>
       </form>
     </section>
     {% else %}
@@ -67,12 +67,12 @@
         <div class="terminal-status">
           <div class="status-card emphasis">
             <span>Current Onboard</span>
-            <strong>{{ overview.capacity.count }}/{{ overview.capacity.limit }}</strong>
+            <strong id="currentOccupancy">{{ overview.capacity.count }}/{{ overview.capacity.limit }}</strong>
             <small>{{ overview.capacity.label }} load</small>
           </div>
           <div class="status-card">
-            <span>Current Stop</span>
-            <strong id="currentStop">{{ overview.trip_summary.stop_name if overview.trip_summary else 'Waiting for location' }}</strong>
+            <span>Current Origin</span>
+            <strong id="currentStop">{{ overview.current_stop }}</strong>
             <small id="trackingStatus">Starting...</small>
           </div>
         </div>
@@ -82,68 +82,82 @@
         <section class="ticket-terminal">
           <div class="terminal-head">
             <div>
-              <h3>Tap To Prepare Counts</h3>
-              <p>Use the buttons to stage changes, then press update once.</p>
+              <h3>Pick destination, then passenger type</h3>
+              <p>This mock follows the handheld flow: GPS decides the origin stop, the conductor picks the destination and fare type, then saves one boarding ticket.</p>
             </div>
             <form method="POST" class="terminal-tools">
               <input type="hidden" name="action" value="set_monitoring_mode">
               <select name="monitoring_mode" onchange="this.form.submit()">
-                <option value="manual" {% if overview.active_trip.monitoring_mode == 'manual' %}selected{% endif %}>Terminal Active</option>
+                <option value="manual" {% if overview.active_trip.monitoring_mode == 'manual' %}selected{% endif %}>Ticket Mock Active</option>
                 <option value="auto" {% if overview.active_trip.monitoring_mode == 'auto' %}selected{% endif %}>Auto Only</option>
               </select>
             </form>
           </div>
 
           {% if overview.active_trip.monitoring_mode == 'manual' %}
-          <form method="POST" id="capacityForm" class="capacity-form">
+          <form method="POST" id="ticketMockForm" class="ticket-mock-form">
             <input type="hidden" name="action" value="record_transaction">
-            <input type="hidden" name="resolved_stop_name" id="resolvedStopName" value="{{ overview.trip_summary.stop_name if overview.trip_summary else '' }}">
-            <input type="hidden" name="students" id="studentsInput" value="{{ overview.transaction_form.students }}">
-            <input type="hidden" name="pwd" id="pwdInput" value="{{ overview.transaction_form.pwd }}">
-            <input type="hidden" name="senior" id="seniorInput" value="{{ overview.transaction_form.senior }}">
-            <input type="hidden" name="regular" id="regularInput" value="{{ overview.transaction_form.regular }}">
-            <input type="hidden" name="dropped" id="droppedInput" value="{{ overview.transaction_form.dropped }}">
+            <input type="hidden" name="destination_stop" id="destinationStopInput" value="{{ overview.transaction_form.destination_stop }}">
+            <input type="hidden" name="passenger_type" id="passengerTypeInput" value="{{ overview.transaction_form.passenger_type }}">
 
-            <div class="quick-grid clean-grid">
-              {% for key, label in [('students', 'Students'), ('pwd', 'PWD'), ('senior', 'Senior'), ('regular', 'Regular'), ('dropped', 'Dropped')] %}
-              <div class="quick-row clean-row">
-                <div class="quick-label clean-label">
-                  <span>{{ label }}</span>
-                  <strong data-display-for="{{ key }}">0</strong>
-                </div>
-                <button type="button" class="quick-button plus-button" data-target="{{ key }}" data-step="1" aria-label="Add one {{ label|lower }}">
-                  +
-                </button>
-                <button type="button" class="quick-button minus-button" data-target="{{ key }}" data-step="-1" aria-label="Remove one {{ label|lower }}">
-                  -
-                </button>
+            <section class="destination-section">
+              <div class="section-title-row">
+                <h3>Destinations</h3>
+                <span>{{ overview.destination_options|length }} upcoming stop(s)</span>
               </div>
-              {% endfor %}
-            </div>
+              <div class="destination-grid">
+                {% for stop in overview.destination_options %}
+                <button
+                  type="button"
+                  class="destination-chip"
+                  data-destination="{{ stop.name }}"
+                  data-fare-student="{{ stop.fare_guide.student }}"
+                  data-fare-pwd="{{ stop.fare_guide.pwd }}"
+                  data-fare-senior="{{ stop.fare_guide.senior }}"
+                  data-fare-regular="{{ stop.fare_guide.regular }}"
+                >
+                  <span class="destination-index">{{ stop.sequence }}</span>
+                  <strong>{{ stop.name }}</strong>
+                </button>
+                {% else %}
+                <p class="muted">No more downstream destinations available from the current GPS stop.</p>
+                {% endfor %}
+              </div>
+            </section>
 
-            <div class="preview-strip clean-preview">
-              <article>
-                <span>Boarding</span>
-                <strong id="boardedPreview">0</strong>
-              </article>
-              <article>
-                <span>Dropping</span>
-                <strong id="droppedPreview">0</strong>
-              </article>
-              <article>
-                <span>Projected Onboard</span>
-                <strong id="projectedOccupancy">{{ overview.capacity.count }}</strong>
-              </article>
-            </div>
+            <section class="fare-type-section">
+              <div class="section-title-row">
+                <h3>Passenger Type</h3>
+                <span>One save records one passenger</span>
+              </div>
+              <div class="passenger-grid">
+                {% for key, label in [('student', 'Student'), ('senior', 'Senior'), ('pwd', 'PWD'), ('regular', 'Standard')] %}
+                <button type="button" class="passenger-chip" data-passenger-type="{{ key }}">{{ label }}</button>
+                {% endfor %}
+              </div>
+            </section>
 
-            <div class="action-bar">
-              <button type="submit" class="primary update-button">Update Capacity</button>
-            </div>
+            <section class="ticket-summary">
+              <div class="summary-sheet">
+                <p><strong>Route:</strong> <span>{{ overview.active_trip.route_name }}</span></p>
+                <p><strong>Origin:</strong> <span id="summaryOrigin">{{ overview.current_stop }}</span></p>
+                <p><strong>Destination:</strong> <span id="summaryDestination">Select destination</span></p>
+                <p><strong>Fare Type:</strong> <span id="summaryPassengerType">Select passenger type</span></p>
+                <p><strong>Fare:</strong> <span id="summaryFare">PHP 0</span></p>
+              </div>
+              <div class="action-bar">
+                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Save Mock Ticket</button>
+              </div>
+            </section>
+          </form>
+          <form method="POST" class="offboard-form">
+            <input type="hidden" name="action" value="offboard_due">
+            <button type="submit" class="secondary">Off Board Current Stop</button>
           </form>
           {% else %}
           <div class="auto-state">
             <strong>Automatic monitoring is active.</strong>
-            <p>Switch back to terminal mode when the conductor is ready to update passenger counts.</p>
+            <p>Switch back to ticket mock mode when the conductor is ready to log a boarding transaction.</p>
           </div>
           {% endif %}
 
@@ -158,30 +172,42 @@
             <h3>Trip Info</h3>
             <div class="summary-list">
               <div><span>Last GPS</span><strong id="lastUpdate">{% if overview.latest_position %}{{ overview.latest_position.recorded_at }}{% else %}No live update yet{% endif %}</strong></div>
-              <div><span>Location</span><strong id="currentCoords">{{ overview.trip_summary.stop_name if overview.trip_summary else 'Waiting for location' }}</strong></div>
+              <div><span>Current Origin</span><strong id="currentCoords">{{ overview.current_stop }}</strong></div>
               <div><span>Total Boarded Today</span><strong>{{ overview.today_summary.boarded }}</strong></div>
-              <div><span>Total Dropped Today</span><strong>{{ overview.today_summary.dropped }}</strong></div>
+              <div><span>Transactions Today</span><strong>{{ overview.today_summary.transactions }}</strong></div>
             </div>
           </section>
 
           <section class="summary-card compact-card">
-            <h3>Recent Updates</h3>
-            {% if overview.recent_transactions %}
-            <div class="record-list">
-              {% for row in overview.recent_transactions %}
+            <h3>Destination Manifest</h3>
+            {% if overview.destination_manifest %}
+            <div class="manifest-list">
+              {% for item in overview.destination_manifest %}
               <article>
-                <strong>{{ row.stop_name }}</strong>
-                <span>{{ row.recorded_at }}</span>
-                <p>
-                  {{ 'Boarded' if row.event_type == 'board' else 'Dropped' }}
-                  {{ row.quantity }}
-                  {{ row.passenger_type if row.event_type == 'board' else 'passengers' }}
-                </p>
+                <strong>{{ item.name }}</strong>
+                <span>{{ item.count }} onboard</span>
               </article>
               {% endfor %}
             </div>
             {% else %}
-            <p class="muted">No updates yet.</p>
+            <p class="muted">No saved passengers are pending for the downstream stops yet.</p>
+            {% endif %}
+          </section>
+
+          <section class="summary-card compact-card">
+            <h3>Recent Tickets</h3>
+            {% if overview.recent_transactions %}
+            <div class="record-list">
+              {% for row in overview.recent_transactions %}
+              <article>
+                <strong>{{ row.origin_stop or row.stop_name }} to {{ row.destination_stop or 'Open destination' }}</strong>
+                <span>{{ row.recorded_at }}</span>
+                <p>{{ row.passenger_type|title }} passenger · PHP {{ '%.0f'|format(row.fare_amount or 0) }}</p>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="muted">No saved tickets yet.</p>
             {% endif %}
           </section>
         </aside>
@@ -190,41 +216,59 @@
     {% endif %}
   </div>
 
-  {% if overview.active_trip %}
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  {% if overview.active_trip %}
   <script>
     const conductorLiveEndpoint = "{{ url_for('conductor_live') }}";
     const trackingStatus = document.getElementById('trackingStatus');
     const currentStop = document.getElementById('currentStop');
     const currentCoords = document.getElementById('currentCoords');
     const lastUpdate = document.getElementById('lastUpdate');
-    const resolvedStopName = document.getElementById('resolvedStopName');
-    const currentOccupancy = Number({{ overview.capacity.count }});
-    const capacityLimit = Number({{ overview.capacity.limit }});
-    const controls = {
-      students: document.getElementById('studentsInput'),
-      pwd: document.getElementById('pwdInput'),
-      senior: document.getElementById('seniorInput'),
-      regular: document.getElementById('regularInput'),
-      dropped: document.getElementById('droppedInput')
-    };
-    const buttons = document.querySelectorAll('.quick-button');
+    const summaryOrigin = document.getElementById('summaryOrigin');
+    const destinationStopInput = document.getElementById('destinationStopInput');
+    const passengerTypeInput = document.getElementById('passengerTypeInput');
+    const summaryDestination = document.getElementById('summaryDestination');
+    const summaryPassengerType = document.getElementById('summaryPassengerType');
+    const summaryFare = document.getElementById('summaryFare');
+    const saveMockButton = document.getElementById('saveMockButton');
+    const currentOccupancy = document.getElementById('currentOccupancy');
+    const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
+    const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
+    let selectedDestinationButton = null;
+    let selectedPassengerButton = null;
 
-    async function resolveLocationName(lat, lng) {
-      try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`, {
-          headers: { 'Accept-Language': 'en' }
-        });
-        if (!response.ok) {
-          return null;
-        }
-        const data = await response.json();
-        const address = data.address || {};
-        return address.city || address.town || address.municipality || address.village || address.county || address.state || null;
-      } catch (error) {
-        return null;
-      }
+    function updateTicketSummary() {
+      const passengerType = passengerTypeInput ? passengerTypeInput.value : '';
+      const destination = destinationStopInput ? destinationStopInput.value : '';
+      const fareValue = selectedDestinationButton && passengerType
+        ? Number(selectedDestinationButton.dataset[`fare${passengerType.charAt(0).toUpperCase()}${passengerType.slice(1)}`] || 0)
+        : 0;
+
+      if (summaryDestination) summaryDestination.textContent = destination || 'Select destination';
+      if (summaryPassengerType) summaryPassengerType.textContent = passengerType ? passengerType.charAt(0).toUpperCase() + passengerType.slice(1) : 'Select passenger type';
+      if (summaryFare) summaryFare.textContent = `PHP ${Math.round(fareValue || 0)}`;
+      if (saveMockButton) saveMockButton.disabled = !(destination && passengerType);
     }
+
+    destinationButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        destinationButtons.forEach((item) => item.classList.remove('is-active'));
+        button.classList.add('is-active');
+        selectedDestinationButton = button;
+        if (destinationStopInput) destinationStopInput.value = button.dataset.destination || '';
+        updateTicketSummary();
+      });
+    });
+
+    passengerButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        passengerButtons.forEach((item) => item.classList.remove('is-active'));
+        button.classList.add('is-active');
+        selectedPassengerButton = button;
+        if (passengerTypeInput) passengerTypeInput.value = button.dataset.passengerType || '';
+        updateTicketSummary();
+      });
+    });
 
     async function refreshDriverLocation() {
       const response = await fetch(conductorLiveEndpoint, { cache: 'no-store' });
@@ -237,108 +281,24 @@
         return;
       }
       if (trackingStatus) trackingStatus.textContent = payload.tracking ? 'Live GPS active' : 'Waiting for driver GPS';
-      const fallbackLabel = payload.stop_name || 'On route';
-      let resolvedLabel = fallbackLabel;
-      if (payload.tracking && payload.latitude !== undefined && payload.longitude !== undefined) {
-        const locationName = await resolveLocationName(payload.latitude, payload.longitude);
-        if (locationName) {
-          resolvedLabel = locationName;
-        }
-      }
-      if (currentStop) currentStop.textContent = resolvedLabel;
-      if (currentCoords) currentCoords.textContent = resolvedLabel;
-      if (resolvedStopName) resolvedStopName.value = resolvedLabel;
+      const stopLabel = payload.stop_name || 'On route';
+      if (currentStop) currentStop.textContent = stopLabel;
+      if (currentCoords) currentCoords.textContent = stopLabel;
+      if (summaryOrigin) summaryOrigin.textContent = stopLabel;
       if (lastUpdate) lastUpdate.textContent = payload.recorded_at || 'No live update yet';
-    }
-
-    function getValue(key) {
-      const input = controls[key];
-      return input ? Math.max(0, Number(input.value) || 0) : 0;
-    }
-
-    function setValue(key, value) {
-      const input = controls[key];
-      if (input) {
-        input.value = Math.max(0, value);
+      if (currentOccupancy && payload.occupancy !== undefined && payload.capacity !== undefined) {
+        currentOccupancy.textContent = `${payload.occupancy}/${payload.capacity}`;
       }
     }
 
-    function refreshPreview() {
-      const students = getValue('students');
-      const pwd = getValue('pwd');
-      const senior = getValue('senior');
-      const regular = getValue('regular');
-      let dropped = getValue('dropped');
-      const boarded = students + pwd + senior + regular;
-      const maxDropped = currentOccupancy + boarded;
-      if (dropped > maxDropped) {
-        dropped = maxDropped;
-        setValue('dropped', dropped);
-      }
-
-      const projected = Math.min(Math.max(currentOccupancy + boarded - dropped, 0), capacityLimit);
-      const boardedPreview = document.getElementById('boardedPreview');
-      const droppedPreview = document.getElementById('droppedPreview');
-      const projectedOccupancy = document.getElementById('projectedOccupancy');
-
-      if (boardedPreview) boardedPreview.textContent = boarded;
-      if (droppedPreview) droppedPreview.textContent = dropped;
-      if (projectedOccupancy) projectedOccupancy.textContent = projected;
-
-      Object.keys(controls).forEach((key) => {
-        const display = document.querySelector(`[data-display-for="${key}"]`);
-        if (display) {
-          display.textContent = getValue(key);
-        }
-      });
-
-      buttons.forEach((button) => {
-        const target = button.dataset.target;
-        const step = Number(button.dataset.step) || 0;
-        const current = getValue(target);
-        const atLowerBound = step < 0 && current <= 0;
-        const atUpperBound = step > 0 && target !== 'dropped' && projected >= capacityLimit;
-        const droppedLimit = step > 0 && target === 'dropped' && dropped >= currentOccupancy + boarded;
-        button.disabled = atLowerBound || atUpperBound || droppedLimit;
-      });
-    }
-
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const target = button.dataset.target;
-        const step = Number(button.dataset.step) || 0;
-        const current = getValue(target);
-        const students = getValue('students');
-        const pwd = getValue('pwd');
-        const senior = getValue('senior');
-        const regular = getValue('regular');
-        const dropped = getValue('dropped');
-        const boarded = students + pwd + senior + regular;
-        const projected = Math.min(Math.max(currentOccupancy + boarded - dropped, 0), capacityLimit);
-
-        if (step > 0 && target !== 'dropped' && projected >= capacityLimit) {
-          return;
-        }
-        if (step > 0 && target === 'dropped' && dropped >= currentOccupancy + boarded) {
-          return;
-        }
-        setValue(target, current + step);
-        refreshPreview();
-      });
-    });
-
-    refreshPreview();
+    updateTicketSummary();
     refreshDriverLocation().catch(() => {
-      if (trackingStatus) trackingStatus.textContent = 'Update failed';
+      if (trackingStatus) trackingStatus.textContent = 'Waiting for driver GPS';
     });
-    setInterval(() => {
-      refreshDriverLocation().catch(() => {
-        if (trackingStatus) trackingStatus.textContent = 'Update failed';
-      });
-    }, 5000);
+    setInterval(() => refreshDriverLocation().catch(() => {
+      if (trackingStatus) trackingStatus.textContent = 'GPS refresh failed';
+    }), 15000);
   </script>
-  {% else %}
-  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% endif %}
 </body>
 </html>

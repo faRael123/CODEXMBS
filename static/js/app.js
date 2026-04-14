@@ -2,6 +2,7 @@ let buses = Array.isArray(window.liveBuses) ? window.liveBuses : [];
 let commuterData = window.commuterData && typeof window.commuterData === 'object' ? window.commuterData : { routes: [], stopDirectory: [], stopNames: [] };
 let userLocation = null;
 let userMarkerLayer = null;
+let applyCurrentLocationToPlanner = false;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -30,11 +31,8 @@ const plannerSwapBtn = document.getElementById('plannerSwapBtn');
 const useCurrentLocationBtn = document.getElementById('useCurrentLocationBtn');
 const plannerResults = document.getElementById('plannerResults');
 const plannerDestinationHint = document.getElementById('plannerDestinationHint');
-const plannerDestinationSummary = document.getElementById('plannerDestinationSummary');
-const plannerDestinationChips = document.getElementById('plannerDestinationChips');
 const stopDirectoryList = document.getElementById('stopDirectoryList');
 const plannerRouteList = document.getElementById('plannerRouteList');
-const plannerStopOptions = document.getElementById('plannerStopOptions');
 
 let mapLayers = [];
 
@@ -380,11 +378,11 @@ function detectUserLocation() {
       const locationName = await resolveLocationName(userLocation.lat, userLocation.lng);
       updateUserLocationText(locationName || `${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`);
       const nearestStop = findNearestStopForCurrentLocation();
-      if (plannerOrigin && nearestStop) {
+      if (applyCurrentLocationToPlanner && plannerOrigin && nearestStop) {
         plannerOrigin.value = nearestStop.name;
+        applyCurrentLocationToPlanner = false;
       }
       populateStopOptions();
-      renderDestinationGuidance();
       renderBusList();
       renderMap();
       renderPlanner();
@@ -510,11 +508,12 @@ function estimateFareTable(distanceKmValue, minimumFare = 15, discountedFare = 1
   const baseDiscounted = Math.max(Math.round(Number(discountedFare) || 12), 1);
   const extraDistance = Math.max(numericDistance - 4, 0);
   const regular = Math.max(Math.round(baseRegular + (extraDistance * 1.35)), baseRegular);
+  const discounted = Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted);
   return {
     regular,
-    student: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted),
-    pwd: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted),
-    senior: Math.max(Math.round(baseDiscounted + (extraDistance * 1.1)), baseDiscounted)
+    student: discounted,
+    pwd: discounted,
+    senior: discounted
   };
 }
 
@@ -548,43 +547,38 @@ function findJourneyOptions(originName, destinationName) {
 
   const options = [];
   getRoutes().forEach((route) => {
-    ['forward', 'reverse'].forEach((direction) => {
-      const directionalRoute = buildDirectionalRoute(route, direction);
-      const originIndex = findRouteStopIndex(directionalRoute, originName);
-      const destinationIndex = findRouteStopIndex(directionalRoute, destinationName);
-      if (originIndex < 0 || destinationIndex < 0 || originIndex >= destinationIndex) {
-        return;
-      }
+    const originIndex = findRouteStopIndex(route, originName);
+    const destinationIndex = findRouteStopIndex(route, destinationName);
+    if (originIndex < 0 || destinationIndex < 0 || originIndex >= destinationIndex) {
+      return;
+    }
 
-      const originStop = directionalRoute.stops[originIndex];
-      const destinationStop = directionalRoute.stops[destinationIndex];
-      const estimatedMinutes = Math.max(
-        Number(destinationStop.minutes_from_start) - Number(originStop.minutes_from_start),
-        0
-      );
-      const estimatedDistanceKm = estimateSegmentDistance(directionalRoute, originStop, destinationStop);
-      const liveBuses = direction === 'forward'
-        ? getRouteLiveBuses(route.routeName)
-            .map((bus) => ({
-              ...bus,
-              etaMinutes: estimateMinutesToStop(route, bus, originName)
-            }))
-            .filter((bus) => bus.etaMinutes !== null)
-            .sort((a, b) => a.etaMinutes - b.etaMinutes)
-        : [];
+    const originStop = route.stops[originIndex];
+    const destinationStop = route.stops[destinationIndex];
+    const estimatedMinutes = Math.max(
+      Number(destinationStop.minutes_from_start) - Number(originStop.minutes_from_start),
+      0
+    );
+    const estimatedDistanceKm = estimateSegmentDistance(route, originStop, destinationStop);
+    const liveBuses = getRouteLiveBuses(route.routeName)
+      .map((bus) => ({
+        ...bus,
+        etaMinutes: estimateMinutesToStop(route, bus, originName)
+      }))
+      .filter((bus) => bus.etaMinutes !== null)
+      .sort((a, b) => a.etaMinutes - b.etaMinutes);
 
-      options.push({
-        route: directionalRoute,
-        canonicalRouteName: route.routeName,
-        travelDirection: direction,
-        originStop,
-        destinationStop,
-        estimatedMinutes,
-        estimatedDistanceKm,
-        fareTable: estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare),
-        liveBuses,
-        nextBus: liveBuses[0] || null
-      });
+    options.push({
+      route,
+      canonicalRouteName: route.routeName,
+      travelDirection: /to cabiao$/i.test(route.routeName) ? 'reverse' : 'forward',
+      originStop,
+      destinationStop,
+      estimatedMinutes,
+      estimatedDistanceKm,
+      fareTable: estimateFareTable(estimatedDistanceKm, route.minimumFare, route.discountedFare),
+      liveBuses,
+      nextBus: liveBuses[0] || null
     });
   });
 
@@ -592,14 +586,10 @@ function findJourneyOptions(originName, destinationName) {
 }
 
 function renderPlannerResult(option) {
-  const stopSequence = option.route.stops
-    .slice(findRouteStopIndex(option.route, option.originStop.name), findRouteStopIndex(option.route, option.destinationStop.name) + 1)
-    .map((stop) => `<span class="${stop.name === option.originStop.name || stop.name === option.destinationStop.name ? 'active' : ''}">${stop.name}</span>`)
-    .join('');
   const nextBusText = option.nextBus
     ? `${option.nextBus.id} in about ${option.nextBus.etaMinutes} min from ${option.nextBus.nextStop}`
     : 'No live bus has a clear ETA to this origin yet';
-  const directionLabel = option.travelDirection === 'reverse' ? 'Return trip direction' : 'Main corridor direction';
+  const routeDirection = `${option.route.startPoint} to ${option.route.endPoint}`;
 
   return `
     <article class="planner-result-card">
@@ -608,7 +598,6 @@ function renderPlannerResult(option) {
           <h3>${option.route.routeName}</h3>
           <p class="planner-route-line">${option.originStop.name} to ${option.destinationStop.name}</p>
         </div>
-        <span class="planner-direction-badge">${directionLabel}</span>
       </div>
       <div class="planner-badges">
         <span>${option.estimatedMinutes} min estimated travel</span>
@@ -619,7 +608,7 @@ function renderPlannerResult(option) {
       <div class="planner-meta-grid">
         <article class="planner-meta-card">
           <span>Direction</span>
-          <strong>${option.route.directionLabel}</strong>
+          <strong>${routeDirection}</strong>
         </article>
         <article class="planner-meta-card">
           <span>Boarding point</span>
@@ -634,7 +623,6 @@ function renderPlannerResult(option) {
         <span>Next bus: ${nextBusText}</span>
         <span>${option.route.stops.length} published stops on this corridor</span>
       </div>
-      <div class="planner-stop-chips">${stopSequence}</div>
       <div class="planner-fares">
         <article><p>Regular</p><strong>PHP ${option.fareTable.regular}</strong></article>
         <article><p>Student</p><strong>PHP ${option.fareTable.student}</strong></article>
@@ -650,43 +638,6 @@ function renderPlannerEmpty(message) {
     return;
   }
   plannerResults.innerHTML = `<article class="planner-empty"><strong>Planner unavailable</strong><p>${message}</p></article>`;
-}
-
-function renderDestinationGuidance() {
-  const destinationName = plannerDestination ? plannerDestination.value.trim() : '';
-  const originName = plannerOrigin ? plannerOrigin.value.trim() : '';
-  const routesServingDestination = destinationName ? getRoutesServingStop(destinationName) : [];
-
-  if (plannerDestinationHint) {
-    plannerDestinationHint.textContent = destinationName
-      ? `${destinationName} is available through ${routesServingDestination.length || 0} published corridor route${routesServingDestination.length === 1 ? '' : 's'}.`
-      : 'Choose the city stop, terminal, or roadside pickup point you want to reach.';
-  }
-
-  if (plannerDestinationSummary) {
-    if (!destinationName) {
-      plannerDestinationSummary.textContent = 'Select a destination to view route direction, estimated travel time, and fare guidance.';
-    } else if (!originName) {
-      plannerDestinationSummary.textContent = `${destinationName} is available. Set your origin to see the direct trip guidance.`;
-    } else {
-      plannerDestinationSummary.textContent = `Planning from ${originName} to ${destinationName}. The planner will match direct trips in the current Gajoda corridor.`;
-    }
-  }
-
-  if (plannerDestinationChips) {
-    const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
-    const candidates = stopNames.filter((name) => stopNameKey(name) !== stopNameKey(originName)).slice(0, 8);
-    plannerDestinationChips.innerHTML = candidates.map((name) => `<button type="button" class="${stopNameKey(name) === stopNameKey(destinationName) ? 'is-active' : ''}" data-destination-chip="${name}">${name}</button>`).join('');
-    plannerDestinationChips.querySelectorAll('[data-destination-chip]').forEach((button) => {
-      button.addEventListener('click', () => {
-        if (plannerDestination) {
-          plannerDestination.value = button.dataset.destinationChip || '';
-        }
-        renderDestinationGuidance();
-        renderPlanner();
-      });
-    });
-  }
 }
 
 function renderPlanner() {
@@ -757,8 +708,13 @@ function renderRouteCards() {
 function populateStopOptions() {
   const stopNames = Array.isArray(commuterData.stopNames) ? commuterData.stopNames : [];
   const defaultRoute = getRoutes()[0];
-  if (plannerStopOptions) {
-    plannerStopOptions.innerHTML = stopNames.map((name) => `<option value="${name}"></option>`).join('');
+
+  if (plannerOrigin && plannerOrigin.tagName === 'SELECT') {
+    const currentOriginValue = plannerOrigin.value;
+    plannerOrigin.innerHTML = `<option value="">Select origin</option>${stopNames.map((name) => `<option value="${name}">${name}</option>`).join('')}`;
+    if (currentOriginValue && stopNames.includes(currentOriginValue)) {
+      plannerOrigin.value = currentOriginValue;
+    }
   }
 
   if (plannerDestination && plannerDestination.tagName === 'SELECT') {
@@ -781,8 +737,7 @@ function populateStopOptions() {
   }
 
   if (plannerOrigin && !plannerOrigin.value && defaultRoute && Array.isArray(defaultRoute.stops) && defaultRoute.stops.length) {
-    const nearestStop = findNearestStopForCurrentLocation();
-    plannerOrigin.value = nearestStop ? nearestStop.name : defaultRoute.stops[0].name;
+    plannerOrigin.value = '';
   }
   if (plannerDestination && !plannerDestination.value && defaultRoute && Array.isArray(defaultRoute.stops) && defaultRoute.stops.length > 1) {
     plannerDestination.value = defaultRoute.stops[defaultRoute.stops.length - 1].name;
@@ -791,7 +746,6 @@ function populateStopOptions() {
 
 function refreshPublicPlanner() {
   populateStopOptions();
-  renderDestinationGuidance();
   renderRouteCards();
   renderStopDirectory();
   renderPlanner();
@@ -853,13 +807,13 @@ if (plannerOrigin) {
 
 if (plannerDestination) {
   plannerDestination.addEventListener('change', () => {
-    renderDestinationGuidance();
     renderPlanner();
   });
 }
 
 if (useCurrentLocationBtn && plannerOrigin) {
   useCurrentLocationBtn.addEventListener('click', () => {
+    applyCurrentLocationToPlanner = true;
     if (!userLocation) {
       detectUserLocation();
       return;
@@ -868,9 +822,9 @@ if (useCurrentLocationBtn && plannerOrigin) {
     if (nearestStop) {
       plannerOrigin.value = nearestStop.name;
       populateStopOptions();
-      renderDestinationGuidance();
       renderPlanner();
     }
+    applyCurrentLocationToPlanner = false;
   });
 }
 
