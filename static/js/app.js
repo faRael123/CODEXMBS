@@ -3,6 +3,8 @@ let commuterData = window.commuterData && typeof window.commuterData === 'object
 let userLocation = null;
 let userMarkerLayer = null;
 let applyCurrentLocationToPlanner = false;
+let hasSetInitialMapView = false;
+let shouldFocusUserLocation = false;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -281,16 +283,6 @@ function renderMap() {
     const coords = Array.isArray(bus.coords) ? bus.coords : [];
     const history = Array.isArray(bus.history) ? bus.history : [];
 
-    if (coords.length && bus.tripStatus === 'active') {
-      const routeLine = addLayer(L.polyline(coords, {
-        color: bus.routeColor || '#1d4ed8',
-        weight: 5,
-        opacity: 0.75
-      }));
-      routeLine.bindPopup(`${bus.direction}`);
-      bounds.push(...coords);
-    }
-
     if (history.length > 1) {
       const trail = addLayer(L.polyline(history, {
         color: bus.routeColor || '#1d4ed8',
@@ -320,10 +312,12 @@ function renderMap() {
     bounds.push([markerLat, markerLng]);
   });
 
-  if (bounds.length) {
+  if (bounds.length && !hasSetInitialMapView) {
     map.fitBounds(bounds, { padding: [24, 24] });
-  } else if (userLocation) {
+    hasSetInitialMapView = true;
+  } else if (userLocation && !hasSetInitialMapView) {
     map.setView([userLocation.lat, userLocation.lng], 14);
+    hasSetInitialMapView = true;
   }
 }
 
@@ -386,8 +380,9 @@ function detectUserLocation() {
       renderBusList();
       renderMap();
       renderPlanner();
-      if (map) {
+      if (map && shouldFocusUserLocation) {
         map.setView([userLocation.lat, userLocation.lng], 15);
+        shouldFocusUserLocation = false;
       }
       setTimeout(focusUserMarker, 120);
     },
@@ -517,6 +512,27 @@ function estimateFareTable(distanceKmValue, minimumFare = 15, discountedFare = 1
   };
 }
 
+function hasSpecificLandmark(stop) {
+  const landmark = String(stop?.landmark || '').trim();
+  if (!landmark) {
+    return false;
+  }
+
+  const genericLandmarks = new Set([
+    'corridor stop',
+    'gajoda-cabanatuan corridor stop'
+  ]);
+  return !genericLandmarks.has(stopNameKey(landmark)) && stopNameKey(landmark) !== stopNameKey(stop?.name);
+}
+
+function formatStopPoint(stop) {
+  const stopName = String(stop?.name || 'Selected stop').trim();
+  if (!hasSpecificLandmark(stop)) {
+    return stopName;
+  }
+  return `${stopName} (${stop.landmark})`;
+}
+
 function buildDirectionalRoute(route, direction = 'forward') {
   if (direction === 'forward') {
     return {
@@ -571,7 +587,7 @@ function findJourneyOptions(originName, destinationName) {
     options.push({
       route,
       canonicalRouteName: route.routeName,
-      travelDirection: /to cabiao$/i.test(route.routeName) ? 'reverse' : 'forward',
+      travelDirection: /to gajoda terminal$/i.test(route.routeName) ? 'reverse' : 'forward',
       originStop,
       destinationStop,
       estimatedMinutes,
@@ -587,9 +603,8 @@ function findJourneyOptions(originName, destinationName) {
 
 function renderPlannerResult(option) {
   const nextBusText = option.nextBus
-    ? `${option.nextBus.id} in about ${option.nextBus.etaMinutes} min from ${option.nextBus.nextStop}`
+    ? `${option.nextBus.id} in about ${option.nextBus.etaMinutes} min to ${option.originStop.name}`
     : 'No live bus has a clear ETA to this origin yet';
-  const routeDirection = `${option.route.startPoint} to ${option.route.endPoint}`;
 
   return `
     <article class="planner-result-card">
@@ -607,16 +622,12 @@ function renderPlannerResult(option) {
       </div>
       <div class="planner-meta-grid">
         <article class="planner-meta-card">
-          <span>Direction</span>
-          <strong>${routeDirection}</strong>
-        </article>
-        <article class="planner-meta-card">
           <span>Boarding point</span>
-          <strong>${option.originStop.landmark}</strong>
+          <strong>${formatStopPoint(option.originStop)}</strong>
         </article>
         <article class="planner-meta-card">
           <span>Arrival point</span>
-          <strong>${option.destinationStop.landmark}</strong>
+          <strong>${formatStopPoint(option.destinationStop)}</strong>
         </article>
       </div>
       <div class="planner-meta">
@@ -793,6 +804,7 @@ if (sortSelect) {
 
 if (locateMeBtn) {
   locateMeBtn.addEventListener('click', () => {
+    shouldFocusUserLocation = true;
     detectUserLocation();
     setTimeout(focusUserMarker, 800);
   });

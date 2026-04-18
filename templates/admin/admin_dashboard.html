@@ -11,11 +11,44 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body data-admin-live-endpoint="{{ url_for('api_admin_live') }}" data-admin-initial-tab="{{ active_tab }}">
   <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
   {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
   {% set route_count = overview.route_rows | length %}
+  {% macro admin_icon(name) -%}
+    <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {%- if name == 'overview' -%}
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h5A1.5 1.5 0 0 1 12 5.5v5A1.5 1.5 0 0 1 10.5 12h-5A1.5 1.5 0 0 1 4 10.5zm8 8A1.5 1.5 0 0 1 13.5 12h5a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5h-5a1.5 1.5 0 0 1-1.5-1.5zM4 15h6v2H4zm10-8h6v2h-6z"/>
+      {%- elif name == 'bus' -%}
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h9A2.5 2.5 0 0 1 18 7.5V10h1.2a1.8 1.8 0 0 1 1.6 1l1.1 2.2c.1.3.1.5.1.8v2.5h-2.5a2.5 2.5 0 0 1-5 0h-5a2.5 2.5 0 0 1-5 0H3V9a1.5 1.5 0 0 1 1-1.4zM7 17.8a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6m10 0a1.3 1.3 0 1 0 0-2.6 1.3 1.3 0 0 0 0 2.6"/>
+      {%- elif name == 'camera' -%}
+      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h8A2.5 2.5 0 0 1 17 7.5v1.1l3-1.8V17l-3-1.8v1.3a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 4 16.5z"/>
+      {%- elif name == 'chart' -%}
+      <path d="M4 19V5h3v14zm6 0V9h3v10zm6 0V3h3v16z"/>
+      {%- elif name == 'route' -%}
+      <path d="M7 4a3 3 0 0 0-1 5.8V14a5 5 0 0 0 5 5h2a3 3 0 1 0 0-2h-2a3 3 0 0 1-3-3V9.8A3 3 0 1 0 7 4m0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2m10 10a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/>
+      {%- elif name == 'user' -%}
+      <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8m0 2c-4.1 0-7 2.1-7 5v1h14v-1c0-2.9-2.9-5-7-5"/>
+      {%- elif name == 'report' -%}
+      <path d="M6 3h9l3 3v15H6zm8 1.8V7h2.2zM8 10v2h8v-2zm0 4v2h8v-2zm0 4h5v-2H8z"/>
+      {%- elif name == 'audit' -%}
+      <path d="M12 3 4 7v5c0 4.7 3.4 8.2 8 9 4.6-.8 8-4.3 8-9V7zm-1 12.6-3-3 1.4-1.4 1.6 1.6 3.8-4 1.4 1.4z"/>
+      {%- elif name == 'log' -%}
+      <path d="M5 4h14v16H5zm3 4v2h8V8zm0 4v2h8v-2zm0 4v2h5v-2z"/>
+      {%- elif name == 'alert' -%}
+      <path d="M12 2 2.8 20h18.4zm1 14h-2v2h2zm0-7h-2v5h2z"/>
+      {%- elif name == 'download' -%}
+      <path d="M11 4h2v8l3-3 1.4 1.4L12 15.8l-5.4-5.4L8 9l3 3zM5 18h14v2H5z"/>
+      {%- elif name == 'logout' -%}
+      <path d="M4 4h8v2H6v12h6v2H4zm11.6 4.4L17.2 10H10v2h7.2l-1.6 1.6L17 15l4-4-4-4z"/>
+      {%- elif name == 'clock' -%}
+      <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m1 9.2 3.2 1.9-1 1.7L11 13.3V7h2z"/>
+      {%- else -%}
+      <path d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19m1 14.5h-2v-2h2zm0-4h-2V7h2z"/>
+      {%- endif -%}
+    </svg>
+  {%- endmacro %}
   <div class="admin-layout">
     <main class="admin-content">
       <header class="admin-header">
@@ -34,8 +67,7 @@
           </div>
         </div>
         <div class="header-actions">
-          <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
-          <a href="{{ url_for('logout') }}" class="solid-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
         </div>
       </header>
 
@@ -50,115 +82,70 @@
         </div>
 
         <div class="sidebar-topbar">
-          <strong>Menu</strong>
+          <strong>{{ admin_icon('overview') }}Menu</strong>
           <button class="menu-close" id="adminMenuClose" aria-label="Close admin menu">×</button>
         </div>
 
         <nav class="sidebar-nav" id="adminTabNav">
-          <button type="button" class="tab-link {% if active_tab == 'overview' %}active{% endif %}" data-target="overview">Overview</button>
-          <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">Live Operations</button>
-          <button type="button" class="tab-link {% if active_tab == 'analytics' %}active{% endif %}" data-target="analytics">Crowd Analytics</button>
-          <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">Commuter Info</button>
-          <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">Profiles</button>
-          <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">Reports</button>
-          <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">Audit Trail</button>
-          <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">Logs</button>
+          <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">{{ admin_icon('bus') }}Live Operations</button>
+          <button type="button" class="tab-link {% if active_tab == 'add-bus' %}active{% endif %}" data-target="add-bus">{{ admin_icon('bus') }}Add / Edit Bus</button>
+          <button type="button" class="tab-link {% if active_tab == 'cameras' %}active{% endif %}" data-target="cameras">{{ admin_icon('camera') }}Camera Feeds</button>
+          <button type="button" class="tab-link {% if active_tab in ['overview', 'analytics'] %}active{% endif %}" data-target="analytics">{{ admin_icon('chart') }}Crowd Analytics</button>
+          <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">{{ admin_icon('route') }}Commuter Info</button>
+          <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">{{ admin_icon('user') }}Profiles</button>
+          <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">{{ admin_icon('report') }}Reports</button>
+          <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">{{ admin_icon('audit') }}Audit Trail</button>
+          <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">{{ admin_icon('log') }}Logs</button>
         </nav>
 
         <div class="sidebar-summary">
           <div>
+            <span class="summary-icon">{{ admin_icon('bus') }}</span>
             <span>Active Buses</span>
             <strong>{{ overview.active_bus_count }}</strong>
           </div>
           <div>
+            <span class="summary-icon">{{ admin_icon('alert') }}</span>
             <span>High Crowd</span>
             <strong>{{ overview.high_crowd_count }}</strong>
           </div>
           <div>
+            <span class="summary-icon">{{ admin_icon('chart') }}</span>
             <span>Avg Crowd</span>
             <strong>{{ overview.avg_crowd }}</strong>
           </div>
         </div>
 
         <div class="sidebar-actions">
-          <a href="{{ url_for('admin_report') }}" class="ghost-button">Export Report</a>
-          <a href="{{ url_for('logout') }}" class="solid-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
+          <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
+          <a href="{{ url_for('logout') }}" class="solid-button" data-confirm="Are you sure you want to log out?">{{ admin_icon('logout') }}Logout</a>
         </div>
       </aside>
     </div>
-      <section id="overview" class="content-section hero-section {% if active_tab == 'overview' %}is-active{% endif %}">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Admin Control System</p>
-            <h1>Fleet analytics, crowd trends, and operational insights.</h1>
-            <p class="section-copy">This dashboard is organized by information type so dispatch, operations, and reporting can be reviewed without cramming everything into one screen.</p>
-          </div>
-        </div>
-
-        <div class="stats-grid dense">
-          <article class="stat-card">
-            <span>Passengers Today</span>
-            <strong>{{ overview.today_total }}</strong>
-            <small>Yesterday: {{ overview.yesterday_total }}</small>
-          </article>
-          <article class="stat-card">
-            <span>Trips Today</span>
-            <strong>{{ overview.trips_today }}</strong>
-            <small>{{ overview.records_today }} crowd updates</small>
-          </article>
-          <article class="stat-card">
-            <span>Peak Hour</span>
-            <strong>{{ overview.peak_hour_label }}</strong>
-            <small>{{ overview.peak_hour_value }} passengers</small>
-          </article>
-          <article class="stat-card">
-            <span>Routes Covered</span>
-            <strong>{{ route_count }}</strong>
-            <small>Tracked in analytics</small>
-          </article>
-          <article class="stat-card">
-            <span>Online Fleet</span>
-            <strong>{{ online_count }}</strong>
-            <small>{{ maintenance_count }} in maintenance</small>
-          </article>
-          <article class="stat-card">
-            <span>Low Crowd Trips</span>
-            <strong>{{ overview.low_count }}</strong>
-            <small>Comfortable load</small>
-          </article>
-          <article class="stat-card">
-            <span>Medium Crowd Trips</span>
-            <strong>{{ overview.medium_count }}</strong>
-            <small>Monitor closely</small>
-          </article>
-          <article class="stat-card">
-            <span>High Crowd Trips</span>
-            <strong>{{ overview.high_crowd_count }}</strong>
-            <small>Needs intervention</small>
-          </article>
-        </div>
-      </section>
-
       <section id="operations" class="content-section {% if active_tab == 'operations' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Live Operations</p>
-            <h2>Current fleet movement and active coordinates</h2>
+            <h2>{{ admin_icon('bus') }}Current fleet movement and active coordinates</h2>
           </div>
         </div>
 
         <div class="operations-grid">
           <article class="panel panel-large">
             <div class="panel-head">
-              <h3>Live Tracking Map</h3>
-              <span>Latest driver GPS and route trail</span>
+              <div>
+                <h3>{{ admin_icon('route') }}Live Tracking Map</h3>
+                <span>Latest active bus GPS position</span>
+              </div>
             </div>
-            <div id="adminMap"></div>
+            <div class="admin-map-shell">
+              <div id="adminMap"></div>
+            </div>
           </article>
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Active Bus Coordinates</h3>
+              <h3>{{ admin_icon('bus') }}Active Bus Coordinates</h3>
               <span>Live positions now in the system</span>
             </div>
             <table>
@@ -187,7 +174,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Fleet Status</h3>
+              <h3>{{ admin_icon('overview') }}Fleet Status</h3>
               <span>Bus health and live occupancy</span>
             </div>
             <table>
@@ -230,101 +217,408 @@
         </div>
       </section>
 
-      <section id="analytics" class="content-section {% if active_tab == 'analytics' %}is-active{% endif %}">
+      <section id="add-bus" class="content-section {% if active_tab == 'add-bus' %}is-active{% endif %}">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Crowd Analytics</p>
-            <h2>Passenger behavior, route demand, and decision support</h2>
+            <p class="eyebrow">Fleet Setup</p>
+            <h2>{{ admin_icon('bus') }}Add or edit buses</h2>
+            <p class="section-copy">Manage bus license or plate number, seat capacity, operating status, and unit notes from one place.</p>
           </div>
-        </div>
-
-        <div class="charts-grid">
-          <article class="panel">
-            <div class="panel-head">
-              <h3>7-Day Passenger Trend</h3>
-              <span>Trip records aggregated by day</span>
-            </div>
-            <canvas id="dailyChart"></canvas>
-          </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h3>Hourly Demand</h3>
-              <span>Today only</span>
-            </div>
-            <canvas id="hourlyChart"></canvas>
-          </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h3>Route Load Comparison</h3>
-              <span>Total passengers per route</span>
-            </div>
-            <canvas id="routeChart"></canvas>
-          </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h3>Passenger Type Mix</h3>
-              <span>7-day crowd composition</span>
-            </div>
-            <canvas id="mixChart"></canvas>
-          </article>
-          <article class="panel">
-            <div class="panel-head">
-              <h3>Top Boarding Stops</h3>
-              <span>Most active stops from transaction records</span>
-            </div>
-            <canvas id="stopChart"></canvas>
-          </article>
-        </div>
-
-        <div class="insights-grid">
-          {% for insight in overview.insights %}
-          <article class="insight-card tone-{{ insight.tone }}">
-            <h3>{{ insight.title }}</h3>
-            <p>{{ insight.body }}</p>
-          </article>
-          {% endfor %}
         </div>
 
         <article class="panel">
           <div class="panel-head">
-            <h3>Stop-Level Demand</h3>
-            <span>Boarding and drop-off activity per stop</span>
+            <h3>{{ admin_icon('bus') }}Add New Bus</h3>
+            <span>New records default to 30 seats</span>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Stop</th>
-                <th>Boarded</th>
-                <th>Dropped</th>
-                <th>Transactions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for stop in overview.stop_rows %}
-              <tr>
-                <td>{{ stop.stop_name }}</td>
-                <td>{{ stop.boarded }}</td>
-                <td>{{ stop.dropped }}</td>
-                <td>{{ stop.transactions }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <form method="POST" class="stack-form">
+            <input type="hidden" name="action" value="add_bus">
+            <input type="hidden" name="redirect_tab" value="add-bus">
+            <div class="form-grid">
+              <label>
+                <span>License / Plate Number</span>
+                <input type="text" name="plate_number" placeholder="MB-05" required>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="offline" selected>Offline</option>
+                  <option value="online">Online</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+              <label>
+                <span>Seats</span>
+                <input type="number" name="capacity" value="30" min="1" step="1" required>
+              </label>
+            </div>
+            <label>
+              <span>Notes</span>
+              <textarea name="notes" rows="4" placeholder="Unit assignment, condition, or remarks"></textarea>
+            </label>
+            <p class="form-note">After saving, the bus appears in Fleet Status and gets Front Road, Passenger Cabin, and Rear Door camera records.</p>
+            <button type="submit" class="solid-button form-submit">{{ admin_icon('bus') }}Add Bus</button>
+          </form>
         </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('overview') }}Edit Existing Buses</h3>
+            <span>Update license, seats, status, and notes</span>
+          </div>
+          <div class="bus-edit-list">
+            {% for bus in overview.fleet_rows %}
+            <form method="POST" class="bus-edit-form">
+              <input type="hidden" name="action" value="update_bus_details">
+              <input type="hidden" name="bus_id" value="{{ bus.id }}">
+              <input type="hidden" name="redirect_tab" value="add-bus">
+              <label>
+                <span>License / Plate</span>
+                <input type="text" name="plate_number" value="{{ bus.plate_number }}" required>
+              </label>
+              <label>
+                <span>Seats</span>
+                <input type="number" name="capacity" value="{{ bus.capacity }}" min="1" step="1" required>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="online" {% if bus.status == 'online' %}selected{% endif %}>Online</option>
+                  <option value="offline" {% if bus.status == 'offline' %}selected{% endif %}>Offline</option>
+                  <option value="maintenance" {% if bus.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                </select>
+              </label>
+              <label class="bus-edit-notes">
+                <span>Notes</span>
+                <textarea name="notes" rows="2" placeholder="Unit notes">{{ bus.notes or '' }}</textarea>
+              </label>
+              <button type="submit" class="mini-button">Save Bus</button>
+            </form>
+            {% else %}
+            <p class="section-copy">No buses are registered yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section id="cameras" class="content-section {% if active_tab == 'cameras' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Camera Feeds</p>
+            <h2>{{ admin_icon('camera') }}Admin-only live camera monitoring</h2>
+            <p class="section-copy">Configure camera-ready bus records now, then attach the real stream URL after hardware or gateway selection.</p>
+          </div>
+        </div>
+
+        <article class="panel camera-monitor-panel">
+          <div class="panel-head">
+            <div>
+              <h3>{{ admin_icon('camera') }}Admin Camera Monitoring</h3>
+              <span>Three camera feeds per bus: front road, passenger cabin, and rear door</span>
+            </div>
+            <div class="camera-toolbar">
+              <div class="camera-mode-control" aria-label="Camera viewing mode">
+                <button type="button" class="camera-mode-button active" data-camera-mode="bus">By Bus</button>
+                <button type="button" class="camera-mode-button" data-camera-mode="all">All Buses</button>
+              </div>
+              <select id="cameraBusSelect" class="camera-select" aria-label="Select bus for camera view"></select>
+              <select id="cameraSelect" class="camera-select" aria-label="Select bus camera">
+                {% for camera in overview.camera_rows %}
+                <option value="{{ camera.id }}">{{ camera.plate_number }} - {{ camera.camera_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="camera-view-mode" id="cameraAllMode">
+            <div class="camera-feed-grid" id="cameraAllGrid"></div>
+          </div>
+          <div class="camera-view-mode is-active" id="cameraBusMode">
+            <div class="camera-feed-grid" id="cameraBusGrid"></div>
+          </div>
+          <div class="camera-meta-grid">
+            <div>
+              <span>Bus</span>
+              <strong id="cameraBusLabel">--</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong id="cameraStatusLabel">--</strong>
+            </div>
+            <div>
+              <span>Stream</span>
+              <strong id="cameraStreamLabel">--</strong>
+            </div>
+            <div>
+              <span>Last Seen</span>
+              <strong id="cameraSeenLabel">--</strong>
+            </div>
+          </div>
+          <div class="camera-config-list">
+            {% for camera in overview.camera_rows %}
+            <form method="POST" class="camera-config-form" data-camera-form="{{ camera.id }}">
+              <input type="hidden" name="action" value="update_camera_settings">
+              <input type="hidden" name="camera_id" value="{{ camera.id }}">
+              <input type="hidden" name="redirect_tab" value="cameras">
+              <label>
+                <span>Camera</span>
+                <input type="text" name="camera_name" value="{{ camera.camera_name }}" required>
+              </label>
+              <label>
+                <span>Type</span>
+                <select name="stream_type">
+                  <option value="hls" {% if camera.stream_type == 'hls' %}selected{% endif %}>HLS</option>
+                  <option value="mjpeg" {% if camera.stream_type == 'mjpeg' %}selected{% endif %}>MJPEG</option>
+                  <option value="embed" {% if camera.stream_type == 'embed' %}selected{% endif %}>Embed</option>
+                  <option value="external" {% if camera.stream_type == 'external' %}selected{% endif %}>External</option>
+                  <option value="webrtc" {% if camera.stream_type == 'webrtc' %}selected{% endif %}>WebRTC</option>
+                  <option value="rtsp_gateway" {% if camera.stream_type == 'rtsp_gateway' %}selected{% endif %}>RTSP Gateway</option>
+                </select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select name="status">
+                  <option value="unconfigured" {% if camera.status == 'unconfigured' %}selected{% endif %}>Unconfigured</option>
+                  <option value="online" {% if camera.status == 'online' %}selected{% endif %}>Online</option>
+                  <option value="offline" {% if camera.status == 'offline' %}selected{% endif %}>Offline</option>
+                  <option value="maintenance" {% if camera.status == 'maintenance' %}selected{% endif %}>Maintenance</option>
+                </select>
+              </label>
+              <label class="camera-url-field">
+                <span>Stream URL</span>
+                <input type="url" name="stream_url" value="{{ camera.stream_url }}" placeholder="Add camera stream URL later">
+              </label>
+              <label class="camera-notes-field">
+                <span>Notes</span>
+                <input type="text" name="notes" value="{{ camera.notes }}" placeholder="Hardware, SIM, gateway, or install notes">
+              </label>
+              <button type="submit" class="mini-button">Save Camera</button>
+            </form>
+            {% else %}
+            <p class="section-copy">No camera records are configured yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section id="analytics" class="content-section hero-section {% if active_tab in ['overview', 'analytics'] %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Crowd Analytics</p>
+            <h2>{{ admin_icon('chart') }}Passenger behavior, route demand, and decision support</h2>
+            <p class="section-copy">Fleet analytics, crowd trends, and operational insights are combined here so the key totals stay visible above the charts.</p>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h3>Current operating picture</h3>
+            </div>
+            <span>Totals and crowd status</span>
+          </div>
+          <div class="stats-grid dense">
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('user') }}</span>
+              <span>Passengers Today</span>
+              <strong>{{ overview.today_total }}</strong>
+              <small>Yesterday: {{ overview.yesterday_total }}</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('bus') }}</span>
+              <span>Trips Today</span>
+              <strong>{{ overview.trips_today }}</strong>
+              <small>{{ overview.records_today }} crowd updates</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('clock') }}</span>
+              <span>Peak Hour</span>
+              <strong>{{ overview.peak_hour_label }}</strong>
+              <small>{{ overview.peak_hour_value }} passengers</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('route') }}</span>
+              <span>Routes Covered</span>
+              <strong>{{ route_count }}</strong>
+              <small>Tracked in analytics</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon">{{ admin_icon('bus') }}</span>
+              <span>Online Fleet</span>
+              <strong>{{ online_count }}</strong>
+              <small>{{ maintenance_count }} in maintenance</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-good">{{ admin_icon('chart') }}</span>
+              <span>Low Crowd Trips</span>
+              <strong>{{ overview.low_count }}</strong>
+              <small>Comfortable load</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-warn">{{ admin_icon('chart') }}</span>
+              <span>Medium Crowd Trips</span>
+              <strong>{{ overview.medium_count }}</strong>
+              <small>Monitor closely</small>
+            </article>
+            <article class="stat-card">
+              <span class="stat-card-icon tone-hot">{{ admin_icon('alert') }}</span>
+              <span>High Crowd Trips</span>
+              <strong>{{ overview.high_crowd_count }}</strong>
+              <small>Needs intervention</small>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Stats And Graphs</p>
+              <h3>Passenger movement trends</h3>
+            </div>
+            <span>Daily and hourly demand</span>
+          </div>
+          <div class="charts-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('chart') }}7-Day Passenger Trend</h3>
+                <span>Trip records aggregated by day</span>
+              </div>
+              <canvas id="dailyChart"></canvas>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('clock') }}Hourly Demand</h3>
+                <span>Today only</span>
+              </div>
+              <canvas id="hourlyChart"></canvas>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Route And Stop Performance</p>
+              <h3>Where passenger demand is concentrated</h3>
+            </div>
+            <span>Routes, stops, and boarding points</span>
+          </div>
+          <div class="charts-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('route') }}Route Performance Summary</h3>
+                <span>Direction, trips, load, and publication status</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Route</th>
+                    <th>Trips</th>
+                    <th>Passengers</th>
+                    <th>Avg Load</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for route in overview.route_rows %}
+                  <tr>
+                    <td>{{ route.route_name }}</td>
+                    <td>{{ route.trip_count }}</td>
+                    <td>{{ route.passengers }}</td>
+                    <td>{{ route.avg_load_percent }}%</td>
+                    <td>{% if route.is_published %}Published{% else %}Hidden{% endif %}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </article>
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('bus') }}Top Boarding Stops</h3>
+                <span>Most active stops from transaction records</span>
+              </div>
+              <canvas id="stopChart"></canvas>
+            </article>
+          </div>
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('route') }}Stop-Level Demand</h3>
+              <span>Boarding and drop-off activity per stop</span>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Stop</th>
+                  <th>Boarded</th>
+                  <th>Dropped</th>
+                  <th>Transactions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for stop in overview.stop_rows %}
+                <tr>
+                  <td>{{ stop.stop_name }}</td>
+                  <td>{{ stop.boarded }}</td>
+                  <td>{{ stop.dropped }}</td>
+                  <td>{{ stop.transactions }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Passenger Profile</p>
+              <h3>Passenger category composition</h3>
+            </div>
+            <span>7-day passenger type mix</span>
+          </div>
+          <div class="profile-grid">
+            <article class="panel">
+              <div class="panel-head">
+                <h3>{{ admin_icon('user') }}Passenger Type Mix</h3>
+                <span>Students, PWD, seniors, and regular passengers</span>
+              </div>
+              <canvas id="mixChart"></canvas>
+            </article>
+          </div>
+        </div>
+
+        <div class="analytics-block">
+          <div class="analytics-block-head">
+            <div>
+              <p class="eyebrow">Operational Insights</p>
+              <h3>Recommended actions from the analytics</h3>
+            </div>
+            <span>{{ overview.insights|length }} active recommendations</span>
+          </div>
+          <div class="insights-grid">
+            {% for insight in overview.insights %}
+            <article class="insight-card tone-{{ insight.tone }}">
+              <span class="insight-category">{{ insight.category }}</span>
+              <h3>{{ insight.title }}</h3>
+              <p>{{ insight.body }}</p>
+            </article>
+            {% endfor %}
+          </div>
+        </div>
       </section>
 
       <section id="commuter" class="content-section {% if active_tab == 'commuter' %}is-active{% endif %}">
         <div class="section-head">
           <div>
             <p class="eyebrow">Commuter Info</p>
-            <h2>Route publication, minimum fares, and public alerts</h2>
+            <h2>{{ admin_icon('route') }}Route publication, minimum fares, and public alerts</h2>
           </div>
         </div>
 
         <div class="report-grid">
           <article class="panel">
             <div class="panel-head">
-              <h3>Published Route Settings</h3>
+              <h3>{{ admin_icon('route') }}Published Route Settings</h3>
               <span>Control route visibility and displayed minimum fares</span>
             </div>
             <table>
@@ -366,7 +660,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Create Service Alert</h3>
+              <h3>{{ admin_icon('alert') }}Create Service Alert</h3>
               <span>Publish notices for route delays, crowding, or dispatch advisories</span>
             </div>
             <form method="POST" class="stack-form">
@@ -409,7 +703,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Active Alerts</h3>
+              <h3>{{ admin_icon('alert') }}Active Alerts</h3>
               <span>Currently visible on the commuter pages</span>
             </div>
             <div class="alert-admin-list">
@@ -439,7 +733,7 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Reports</p>
-            <h2>Structured trip, bus, passenger, and revenue reporting</h2>
+            <h2>{{ admin_icon('report') }}Structured trip, bus, passenger, and revenue reporting</h2>
           </div>
         </div>
 
@@ -486,7 +780,7 @@
         <div class="report-grid">
           <article class="panel">
             <div class="panel-head">
-              <h3>Route Reports</h3>
+              <h3>{{ admin_icon('route') }}Route Reports</h3>
               <span>Passenger volume and load percentage</span>
             </div>
             <table>
@@ -513,7 +807,7 @@
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Bus Revenue and Passenger Breakdown</h3>
+              <h3>{{ admin_icon('chart') }}Bus Revenue and Passenger Breakdown</h3>
               <span>Filter charts by bus to inspect passenger mix and revenue composition</span>
             </div>
             <div class="form-grid">
@@ -530,28 +824,28 @@
             <div class="charts-grid">
               <article class="panel">
                 <div class="panel-head">
-                  <h3>Passenger Breakdown</h3>
+                  <h3>{{ admin_icon('user') }}Passenger Breakdown</h3>
                   <span id="reportPassengerCaption">Passenger mix for all buses</span>
                 </div>
                 <canvas id="reportPassengerBreakdownChart"></canvas>
               </article>
               <article class="panel">
                 <div class="panel-head">
-                  <h3>Revenue Breakdown</h3>
+                  <h3>{{ admin_icon('report') }}Revenue Breakdown</h3>
                   <span id="reportRevenueCaption">Revenue composition for all buses</span>
                 </div>
                 <canvas id="reportRevenueBreakdownChart"></canvas>
               </article>
               <article class="panel">
                 <div class="panel-head">
-                  <h3>Daily Passenger Totals</h3>
+                  <h3>{{ admin_icon('chart') }}Daily Passenger Totals</h3>
                   <span>Daily totals for the selected bus</span>
                 </div>
                 <canvas id="reportDailyPassengersChart"></canvas>
               </article>
               <article class="panel">
                 <div class="panel-head">
-                  <h3>Daily Revenue Totals</h3>
+                  <h3>{{ admin_icon('chart') }}Daily Revenue Totals</h3>
                   <span>Daily revenue trend for the selected bus</span>
                 </div>
                 <canvas id="reportDailyRevenueChart"></canvas>
@@ -566,14 +860,14 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Profiles</p>
-            <h2>Create new admin, driver, and conductor accounts</h2>
+            <h2>{{ admin_icon('user') }}Create new admin, driver, and conductor accounts</h2>
           </div>
         </div>
 
         <div class="report-grid">
           <article class="panel">
             <div class="panel-head">
-              <h3>Create Profile</h3>
+              <h3>{{ admin_icon('user') }}Create Profile</h3>
               <span>Add a new staff account for the system</span>
             </div>
             <form method="POST" class="stack-form">
@@ -607,13 +901,13 @@
                   </select>
                 </label>
               </div>
-              <button type="submit" class="solid-button form-submit">Create Profile</button>
+              <button type="submit" class="solid-button form-submit">{{ admin_icon('user') }}Create Profile</button>
             </form>
           </article>
 
           <article class="panel">
             <div class="panel-head">
-              <h3>Existing Profiles</h3>
+              <h3>{{ admin_icon('user') }}Existing Profiles</h3>
               <span>Current staff accounts in the system</span>
             </div>
             <table>
@@ -703,13 +997,13 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Audit Trail</p>
-            <h2>Trip-level audit plus transaction-level history for review</h2>
+            <h2>{{ admin_icon('audit') }}Trip-level audit plus transaction-level history for review</h2>
           </div>
         </div>
 
         <article class="panel">
           <div class="panel-head">
-            <h3>Detailed Trip Audit</h3>
+            <h3>{{ admin_icon('audit') }}Detailed Trip Audit</h3>
             <span>Bus-centered audit view matching manual revenue and passenger review workflows</span>
           </div>
           <table>
@@ -761,7 +1055,7 @@
 
         <article class="panel">
           <div class="panel-head">
-            <h3>Recent Trip Transactions</h3>
+            <h3>{{ admin_icon('log') }}Recent Trip Transactions</h3>
             <span>Latest boarding and drop events captured by the system</span>
           </div>
           <table>
@@ -794,7 +1088,7 @@
 
         <article class="panel">
           <div class="panel-head">
-            <h3>Bus-Specific Daily Tabulation</h3>
+            <h3>{{ admin_icon('bus') }}Bus-Specific Daily Tabulation</h3>
             <span>Each bus has its own section, including status when there is no trip data</span>
           </div>
           <div class="alert-admin-list">
@@ -804,6 +1098,36 @@
                 <strong>{{ bus.plate_number }}</strong>
                 <span>Status: {{ bus.status }} / {{ bus.trip_status }} · {{ bus.route_name }}</span>
               </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>PWD</th>
+                    <th>Senior</th>
+                    <th>Regular</th>
+                    <th>Total Pax</th>
+                    <th>Student Rev</th>
+                    <th>PWD Rev</th>
+                    <th>Senior Rev</th>
+                    <th>Regular Rev</th>
+                    <th>Total Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>{{ bus.passengers_by_type.student }}</td>
+                    <td>{{ bus.passengers_by_type.pwd }}</td>
+                    <td>{{ bus.passengers_by_type.senior }}</td>
+                    <td>{{ bus.passengers_by_type.regular }}</td>
+                    <td>{{ bus.total_passengers }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.student) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.pwd) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.senior) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.revenue_by_type.regular) }}</td>
+                    <td>PHP {{ '%.2f'|format(bus.total_revenue) }}</td>
+                  </tr>
+                </tbody>
+              </table>
               {% if bus.rows %}
               <table>
                 <thead>
@@ -846,13 +1170,13 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">Logs</p>
-            <h2>Recent operational activity and staff attendance</h2>
+            <h2>{{ admin_icon('log') }}Recent operational activity and staff attendance</h2>
           </div>
         </div>
 
         <section class="panel log-panel">
           <div class="panel-head">
-            <h3>Staff Attendance</h3>
+            <h3>{{ admin_icon('clock') }}Staff Attendance</h3>
             <span>Login time with linked trip assignment, route, and trip timing</span>
           </div>
           <table>
@@ -893,7 +1217,7 @@
 
         <section class="panel log-panel">
           <div class="panel-head">
-            <h3>Recent Logs</h3>
+            <h3>{{ admin_icon('log') }}Recent Logs</h3>
             <span>System activity for reports and monitoring</span>
           </div>
           <table>
@@ -923,435 +1247,7 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
-  <script>
-    const chartData = {{ overview.charts|tojson }};
-    const initialAdminTab = {{ active_tab|tojson }};
-    const adminLiveEndpoint = "{{ url_for('api_admin_live') }}";
-    const adminBurger = document.getElementById('adminBurger');
-    const adminMenuOverlay = document.getElementById('adminMenuOverlay');
-    const adminMenuClose = document.getElementById('adminMenuClose');
-    const adminTabNav = document.getElementById('adminTabNav');
-    const adminSections = document.querySelectorAll('.content-section');
-
-    function markerColor(level) {
-      if (level === 'High') return '#dc2626';
-      if (level === 'Medium') return '#ea580c';
-      return '#16a34a';
-    }
-
-    function createBusIcon(level) {
-      const fill = markerColor(level);
-      const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" viewBox="0 0 42 42">
-          <g fill="none" fill-rule="evenodd">
-            <path d="M21 3C11.6 3 6 6.8 6 13v12.5c0 2.2 1.8 4 4 4H11v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2h8v4.2c0 1.2 1 2.3 2.3 2.3h1.4c1.2 0 2.3-1 2.3-2.3v-4.2H32c2.2 0 4-1.8 4-4V13c0-6.2-5.6-10-15-10Z" fill="${fill}" stroke="#0f172a" stroke-width="1.5"/>
-            <rect x="10" y="10" width="22" height="8" rx="2.5" fill="#e0f2fe" stroke="#0f172a" stroke-width="1.2"/>
-            <path d="M10 22h22" stroke="#0f172a" stroke-width="1.4"/>
-            <circle cx="14" cy="28" r="3.2" fill="#111827"/>
-            <circle cx="28" cy="28" r="3.2" fill="#111827"/>
-          </g>
-        </svg>
-      `;
-
-      return L.icon({
-        iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-        iconSize: [42, 42],
-        iconAnchor: [21, 21],
-        popupAnchor: [0, -18]
-      });
-    }
-
-    function showSection(sectionId) {
-      adminSections.forEach((section) => {
-        section.classList.toggle('is-active', section.id === sectionId);
-      });
-
-      document.querySelectorAll('.tab-link').forEach((button) => {
-        button.classList.toggle('active', button.dataset.target === sectionId);
-      });
-
-      if (adminMenuOverlay) {
-        adminMenuOverlay.classList.remove('open');
-      }
-
-      if (sectionId === 'operations') {
-        setTimeout(() => {
-          adminMap.invalidateSize();
-          renderAdminMap();
-        }, 120);
-      }
-    }
-
-    new Chart(document.getElementById('dailyChart'), {
-      type: 'line',
-      data: {
-        labels: chartData.daily_labels,
-        datasets: [{
-          label: 'Passengers',
-          data: chartData.daily_values,
-          borderColor: '#D60000',
-          backgroundColor: 'rgba(214, 0, 0, 0.12)',
-          fill: true,
-          tension: 0.35
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    new Chart(document.getElementById('hourlyChart'), {
-      type: 'bar',
-      data: {
-        labels: chartData.hourly_labels,
-        datasets: [{
-          label: 'Hourly passengers',
-          data: chartData.hourly_values,
-          backgroundColor: '#D60000',
-          borderRadius: 10
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    new Chart(document.getElementById('routeChart'), {
-      type: 'bar',
-      data: {
-        labels: chartData.route_labels,
-        datasets: [{
-          label: 'Route passengers',
-          data: chartData.route_values,
-          backgroundColor: ['#D60000', '#ef4444', '#f97316', '#991b1b'],
-          borderRadius: 10
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    new Chart(document.getElementById('mixChart'), {
-      type: 'doughnut',
-      data: {
-        labels: chartData.mix_labels,
-        datasets: [{
-          data: chartData.mix_values,
-          backgroundColor: ['#D60000', '#fb7185', '#f59e0b', '#374151']
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    new Chart(document.getElementById('stopChart'), {
-      type: 'bar',
-      data: {
-        labels: chartData.stop_labels,
-        datasets: [{
-          label: 'Boarded passengers',
-          data: chartData.stop_values,
-          backgroundColor: '#2563eb',
-          borderRadius: 10
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    const reportBusAnalytics = chartData.report_bus_analytics || { all: {}, buses: {}, bus_options: [] };
-    const reportBusFilter = document.getElementById('reportBusFilter');
-    const reportPassengerCaption = document.getElementById('reportPassengerCaption');
-    const reportRevenueCaption = document.getElementById('reportRevenueCaption');
-
-    function getReportDataset(busKey) {
-      if (busKey && busKey !== 'all' && reportBusAnalytics.buses && reportBusAnalytics.buses[busKey]) {
-        return reportBusAnalytics.buses[busKey];
-      }
-      return reportBusAnalytics.all || {};
-    }
-
-    const reportPassengerBreakdownChart = new Chart(document.getElementById('reportPassengerBreakdownChart'), {
-      type: 'doughnut',
-      data: {
-        labels: ['Students', 'PWD', 'Senior', 'Regular'],
-        datasets: [{
-          data: [0, 0, 0, 0],
-          backgroundColor: ['#D60000', '#fb7185', '#f59e0b', '#374151']
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    const reportRevenueBreakdownChart = new Chart(document.getElementById('reportRevenueBreakdownChart'), {
-      type: 'bar',
-      data: {
-        labels: ['Students', 'PWD', 'Senior', 'Regular'],
-        datasets: [{
-          label: 'Revenue',
-          data: [0, 0, 0, 0],
-          backgroundColor: ['#991b1b', '#e11d48', '#ea580c', '#1f2937'],
-          borderRadius: 10
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    const reportDailyPassengersChart = new Chart(document.getElementById('reportDailyPassengersChart'), {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Passengers',
-          data: [],
-          borderColor: '#D60000',
-          backgroundColor: 'rgba(214, 0, 0, 0.12)',
-          fill: true,
-          tension: 0.35
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    const reportDailyRevenueChart = new Chart(document.getElementById('reportDailyRevenueChart'), {
-      type: 'bar',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'Revenue',
-          data: [],
-          backgroundColor: '#2563eb',
-          borderRadius: 10
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    function updateReportCharts(busKey = 'all') {
-      const dataset = getReportDataset(busKey);
-      const passengerTotals = dataset.passenger_totals || {};
-      const revenueTotals = dataset.revenue_totals || {};
-      const labels = dataset.labels || [];
-      const dailyPassengers = dataset.daily_passengers || [];
-      const dailyRevenue = dataset.daily_revenue || [];
-      const caption = busKey === 'all'
-        ? 'all buses'
-        : `${busKey}${dataset.route_name ? ` · ${dataset.route_name}` : ''}`;
-
-      if (reportPassengerCaption) {
-        reportPassengerCaption.textContent = `Passenger mix for ${caption}`;
-      }
-      if (reportRevenueCaption) {
-        reportRevenueCaption.textContent = `Revenue composition for ${caption}`;
-      }
-
-      reportPassengerBreakdownChart.data.datasets[0].data = [
-        passengerTotals.student || 0,
-        passengerTotals.pwd || 0,
-        passengerTotals.senior || 0,
-        passengerTotals.regular || 0,
-      ];
-      reportPassengerBreakdownChart.update();
-
-      reportRevenueBreakdownChart.data.datasets[0].data = [
-        revenueTotals.student || 0,
-        revenueTotals.pwd || 0,
-        revenueTotals.senior || 0,
-        revenueTotals.regular || 0,
-      ];
-      reportRevenueBreakdownChart.update();
-
-      reportDailyPassengersChart.data.labels = labels;
-      reportDailyPassengersChart.data.datasets[0].data = dailyPassengers;
-      reportDailyPassengersChart.update();
-
-      reportDailyRevenueChart.data.labels = labels;
-      reportDailyRevenueChart.data.datasets[0].data = dailyRevenue;
-      reportDailyRevenueChart.update();
-    }
-
-    if (reportBusFilter) {
-      reportBusFilter.addEventListener('change', (event) => {
-        updateReportCharts(event.target.value);
-      });
-    }
-    updateReportCharts(reportBusFilter ? reportBusFilter.value : 'all');
-
-    function roundPeso(value) {
-      return Math.max(Math.round(Number(value) || 0), 1);
-    }
-
-    function suggestedDiscountedFare(regularFare) {
-      return roundPeso((Number(regularFare) || 0) * 0.8);
-    }
-
-    document.querySelectorAll('.route-settings-form').forEach((form) => {
-      const regularInput = form.querySelector('[data-regular-fare-input]');
-      const discountedInput = form.querySelector('[data-discounted-fare-input]');
-      if (!regularInput || !discountedInput) {
-        return;
-      }
-
-      let discountedManuallyEdited = false;
-
-      const sanitizeDigits = (input) => {
-        input.value = String(input.value || '').replace(/\D+/g, '');
-      };
-
-      const syncDiscountedFare = () => {
-        sanitizeDigits(regularInput);
-        if (discountedManuallyEdited) {
-          return;
-        }
-        discountedInput.value = String(suggestedDiscountedFare(regularInput.value));
-      };
-
-      regularInput.addEventListener('input', () => {
-        sanitizeDigits(regularInput);
-        syncDiscountedFare();
-      });
-      discountedInput.addEventListener('input', () => {
-        sanitizeDigits(discountedInput);
-        discountedManuallyEdited = true;
-      });
-      regularInput.addEventListener('keydown', (event) => {
-        if (['e', 'E', '+', '-', '.', ','].includes(event.key)) {
-          event.preventDefault();
-        }
-      });
-      discountedInput.addEventListener('keydown', (event) => {
-        if (['e', 'E', '+', '-', '.', ','].includes(event.key)) {
-          event.preventDefault();
-        }
-      });
-      regularInput.addEventListener('change', syncDiscountedFare);
-      discountedInput.addEventListener('change', () => sanitizeDigits(discountedInput));
-
-      syncDiscountedFare();
-    });
-
-    let liveBuses = chartData.live_buses || [];
-    const liveBusTableBody = document.getElementById('liveBusTableBody');
-    const adminMap = L.map('adminMap').setView([15.37, 120.94], 10);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(adminMap);
-
-    let adminMapLayers = [];
-
-    function clearAdminMapLayers() {
-      adminMapLayers.forEach((layer) => adminMap.removeLayer(layer));
-      adminMapLayers = [];
-    }
-
-    function addAdminLayer(layer) {
-      layer.addTo(adminMap);
-      adminMapLayers.push(layer);
-      return layer;
-    }
-
-    function renderAdminMap() {
-      clearAdminMapLayers();
-
-      if (!liveBuses.length) {
-        return;
-      }
-
-      const bounds = [];
-      liveBuses.forEach((bus) => {
-        const coords = Array.isArray(bus.coords) ? bus.coords : [];
-        const history = Array.isArray(bus.history) ? bus.history : [];
-
-        if (coords.length) {
-          addAdminLayer(L.polyline(coords, {
-            color: bus.routeColor || '#D60000',
-            weight: 4,
-            opacity: 0.5
-          }));
-          bounds.push(...coords);
-        }
-
-        if (history.length > 1) {
-          addAdminLayer(L.polyline(history, {
-            color: bus.routeColor || '#D60000',
-            weight: 4,
-            opacity: 0.95,
-            dashArray: '8, 8'
-          }));
-          bounds.push(...history);
-        }
-
-        const marker = addAdminLayer(L.marker([bus.lat, bus.lng], {
-          icon: createBusIcon(bus.crowdLevel)
-        }));
-        marker.bindPopup(`
-          <strong>${bus.id}</strong><br>
-          ${bus.direction}<br>
-          ${bus.passengers}/${bus.capacity} passengers<br>
-          ${bus.driver}
-        `);
-        bounds.push([bus.lat, bus.lng]);
-      });
-
-      if (bounds.length) {
-        adminMap.fitBounds(bounds, { padding: [24, 24] });
-      }
-    }
-
-    function renderLiveBusTable(rows) {
-      if (!liveBusTableBody) {
-        return;
-      }
-
-      if (!rows.length) {
-        liveBusTableBody.innerHTML = '<tr><td colspan="5">No active buses right now.</td></tr>';
-        return;
-      }
-
-      liveBusTableBody.innerHTML = rows.map((bus) => `
-        <tr>
-          <td>${bus.plate_number}</td>
-          <td>${bus.driver}</td>
-          <td>${bus.route_name}</td>
-          <td>${bus.occupancy}/${bus.capacity} · ${bus.crowd_level}</td>
-          <td>${bus.location}</td>
-        </tr>
-      `).join('');
-    }
-
-    async function refreshAdminLive() {
-      try {
-        const response = await fetch(adminLiveEndpoint, { cache: 'no-store' });
-        if (!response.ok) {
-          return;
-        }
-        const payload = await response.json();
-        liveBuses = Array.isArray(payload.live_buses) ? payload.live_buses : [];
-        renderLiveBusTable(Array.isArray(payload.live_bus_rows) ? payload.live_bus_rows : []);
-        renderAdminMap();
-      } catch (error) {
-        console.error('Admin live refresh failed', error);
-      }
-    }
-
-    if (adminBurger && adminMenuOverlay) {
-      adminBurger.addEventListener('click', () => adminMenuOverlay.classList.add('open'));
-    }
-
-    if (adminMenuClose && adminMenuOverlay) {
-      adminMenuClose.addEventListener('click', () => adminMenuOverlay.classList.remove('open'));
-      adminMenuOverlay.addEventListener('click', (event) => {
-        if (event.target === adminMenuOverlay) {
-          adminMenuOverlay.classList.remove('open');
-        }
-      });
-    }
-
-    if (adminTabNav) {
-      adminTabNav.addEventListener('click', (event) => {
-        const button = event.target.closest('.tab-link');
-        if (!button) {
-          return;
-        }
-        showSection(button.dataset.target);
-      });
-    }
-
-    showSection(initialAdminTab || 'overview');
-    setInterval(refreshAdminLive, 5000);
-  </script>
+  <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
+  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}"></script>
 </body>
 </html>

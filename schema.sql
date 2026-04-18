@@ -131,6 +131,20 @@ CREATE TABLE IF NOT EXISTS gps_logs (
     CONSTRAINT fk_gps_logs_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS bus_cameras (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bus_id INT NOT NULL,
+    camera_name VARCHAR(120) NOT NULL,
+    stream_type ENUM('hls', 'mjpeg', 'embed', 'external', 'webrtc', 'rtsp_gateway') NOT NULL DEFAULT 'external',
+    stream_url TEXT NULL,
+    status ENUM('online', 'offline', 'maintenance', 'unconfigured') NOT NULL DEFAULT 'unconfigured',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    last_seen_at DATETIME NULL,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_bus_cameras_bus FOREIGN KEY (bus_id) REFERENCES buses(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS system_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NULL,
@@ -165,5 +179,6 @@ CREATE INDEX idx_trip_records_recorded_at ON trip_records(recorded_at);
 CREATE INDEX idx_trip_transactions_trip_id ON trip_transactions(trip_id);
 CREATE INDEX idx_trip_transactions_recorded_at ON trip_transactions(recorded_at);
 CREATE INDEX idx_gps_logs_trip_id ON gps_logs(trip_id);
+CREATE INDEX idx_bus_cameras_bus_active ON bus_cameras(bus_id, is_active);
 CREATE INDEX idx_service_alerts_active ON service_alerts(is_active, created_at);
 CREATE INDEX idx_route_stops_route_sequence ON route_stops(route_id, stop_sequence);
