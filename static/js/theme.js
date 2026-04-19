@@ -27,4 +27,20 @@
       setTheme(current === 'dark' ? 'light' : 'dark');
     });
   }
+
+  document.querySelectorAll('[data-confirm]').forEach((element) => {
+    element.addEventListener('click', (event) => {
+      if (!window.confirm(element.dataset.confirm || 'Continue?')) {
+        event.preventDefault();
+      }
+    });
+  });
+
+  document.querySelectorAll('select[data-auto-submit]').forEach((select) => {
+    select.addEventListener('change', () => {
+      if (select.form) {
+        select.form.submit();
+      }
+    });
+  });
 })();

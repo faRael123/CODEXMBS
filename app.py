@@ -26,44 +26,53 @@ from connection import bootstrap_db, get_db
 app = Flask(__name__)
 app.secret_key = "codexmbs-clean-rebuild-secret"
 
+PROTECTED_PATH_PREFIXES = (
+    "/admin",
+    "/dashboard",
+    "/tracker-device",
+    "/start_trip",
+    "/end_trip",
+    "/driver",
+    "/conductor",
+    "/api/admin",
+    "/api/conductor",
+)
+
 DEFAULT_BUS_CAPACITY = 30
+STOP_PASS_RADIUS_KM = 0.85
+AUTO_OFFBOARD_BOARDING_GRACE_SECONDS = 90
+CAMERA_STREAM_TYPES = {"hls", "mjpeg", "embed", "external", "webrtc", "rtsp_gateway"}
+CAMERA_STATUSES = {"online", "offline", "maintenance", "unconfigured"}
+DEFAULT_BUS_CAMERAS = [
+    ("Front Road", "Forward-facing road and route visibility camera"),
+    ("Passenger Cabin", "Interior passenger and occupancy monitoring camera"),
+    ("Rear Door", "Rear doorway and boarding safety camera"),
+]
 MAP_FALLBACK_COORDS = [15.4865, 120.9667]
 ROUTE_STOPS = {
-    "Cabiao - Cabanatuan": [
-        ("Cabiao Terminal", 15.2484, 120.8542),
-        ("Cabiao", 15.2861, 120.8923),
-        ("San Isidro", 15.3680, 120.9431),
-        ("Cabanatuan City", 15.4865, 120.9667),
+    "Gajoda Terminal to Cabanatuan": [
+        ("Gajoda Garage and Office", 15.284472, 120.938750),
+        ("San Isidro Town Proper", 15.3295, 120.9392),
+        ("Cabanatuan Terminal", 15.4865, 120.9667),
     ],
-    "Gapan - Cabanatuan": [
-        ("Gapan City", 15.3079, 120.9460),
-        ("Peñaranda", 15.3605, 120.9542),
-        ("Cabanatuan City", 15.4865, 120.9667),
-    ],
-    "San Isidro - Cabanatuan": [
-        ("San Isidro", 15.3295, 120.9392),
-        ("Burgos", 15.4078, 120.9550),
-        ("Cabanatuan City", 15.4865, 120.9667),
+    "Cabanatuan to Gajoda Terminal": [
+        ("Cabanatuan Terminal", 15.4865, 120.9667),
+        ("San Isidro Town Proper", 15.3295, 120.9392),
+        ("Gajoda Garage and Office", 15.284472, 120.938750),
     ],
 }
 
 DISCOUNTED_PASSENGER_TYPES = {"student", "pwd", "senior"}
 ROUTE_STOP_DETAILS = {
-    "Cabiao - Cabanatuan": [
-        {"name": "Cabiao Terminal", "lat": 15.2484, "lng": 120.8542, "minutes_from_start": 0, "landmark": "Municipal terminal"},
-        {"name": "Cabiao Junction", "lat": 15.2861, "lng": 120.8923, "minutes_from_start": 10, "landmark": "Town proper boarding area"},
-        {"name": "San Isidro Public Market", "lat": 15.3680, "lng": 120.9431, "minutes_from_start": 28, "landmark": "Market and jeep transfer point"},
-        {"name": "Cabanatuan Central Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 55, "landmark": "Main city terminal"},
+    "Gajoda Terminal to Cabanatuan": [
+        {"name": "Gajoda Garage and Office", "lat": 15.284472, "lng": 120.938750, "minutes_from_start": 0, "landmark": "Gajoda terminal, garage, and office"},
+        {"name": "San Isidro Town Proper", "lat": 15.3295, "lng": 120.9392, "minutes_from_start": 10, "landmark": "Corridor stop"},
+        {"name": "Cabanatuan Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 48, "landmark": "Cabanatuan terminal"},
     ],
-    "Gapan - Cabanatuan": [
-        {"name": "Gapan Transport Hub", "lat": 15.3079, "lng": 120.9460, "minutes_from_start": 0, "landmark": "Gapan dispatch area"},
-        {"name": "Penaranda Junction", "lat": 15.3605, "lng": 120.9542, "minutes_from_start": 18, "landmark": "Municipal roadside pickup"},
-        {"name": "Cabanatuan Central Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 46, "landmark": "Main city terminal"},
-    ],
-    "San Isidro - Cabanatuan": [
-        {"name": "San Isidro Public Market", "lat": 15.3295, "lng": 120.9392, "minutes_from_start": 0, "landmark": "Public market stop"},
-        {"name": "Burgos", "lat": 15.4078, "lng": 120.9550, "minutes_from_start": 17, "landmark": "Barangay roadside pickup"},
-        {"name": "Cabanatuan Central Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 38, "landmark": "Main city terminal"},
+    "Cabanatuan to Gajoda Terminal": [
+        {"name": "Cabanatuan Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 0, "landmark": "Cabanatuan terminal"},
+        {"name": "San Isidro Town Proper", "lat": 15.3295, "lng": 120.9392, "minutes_from_start": 38, "landmark": "Corridor stop"},
+        {"name": "Gajoda Garage and Office", "lat": 15.284472, "lng": 120.938750, "minutes_from_start": 48, "landmark": "Gajoda terminal, garage, and office"},
     ],
 }
 ROUTE_STOPS = {
@@ -71,46 +80,43 @@ ROUTE_STOPS = {
     for route_name, stops in ROUTE_STOP_DETAILS.items()
 }
 
-FORWARD_ROUTE_NAME = "Cabiao to Cabanatuan"
-REVERSE_ROUTE_NAME = "Cabanatuan to Cabiao"
-CORRIDOR_TRAVEL_MINUTES = 55
-CORRIDOR_DISTANCE_KM = 27.5
-CORRIDOR_START = (15.2484, 120.8542)
+FORWARD_ROUTE_NAME = "Gajoda Terminal to Cabanatuan"
+REVERSE_ROUTE_NAME = "Cabanatuan to Gajoda Terminal"
+CORRIDOR_TRAVEL_MINUTES = 48
+CORRIDOR_DISTANCE_KM = 25.0
+CORRIDOR_START = (15.284472, 120.938750)
 CORRIDOR_END = (15.4865, 120.9667)
 CORRIDOR_STOP_DETAILS = [
-    {"name": "Cabiao Town Proper", "lat": 15.2484, "lng": 120.8542, "minutes_from_start": 0},
-    {"name": "San Fernando Sur", "lat": 15.2730, "lng": 120.8780, "minutes_from_start": 4},
-    {"name": "San Fernando Norte", "lat": 15.2840, "lng": 120.8890, "minutes_from_start": 6},
-    {"name": "San Roque, San Isidro", "lat": 15.2970, "lng": 120.9040, "minutes_from_start": 9},
-    {"name": "Sto. Cristo, San Isidro", "lat": 15.3050, "lng": 120.9150, "minutes_from_start": 11},
-    {"name": "Alua, San Isidro", "lat": 15.3160, "lng": 120.9280, "minutes_from_start": 14},
-    {"name": "San Isidro Town Proper", "lat": 15.3295, "lng": 120.9392, "minutes_from_start": 17},
-    {"name": "Malapit, San Isidro", "lat": 15.3335, "lng": 120.9426, "minutes_from_start": 18},
-    {"name": "San Isidro Border", "lat": 15.3368, "lng": 120.9450, "minutes_from_start": 19},
-    {"name": "San Nicolas, Brgy. Chalmers", "lat": 15.3408, "lng": 120.9472, "minutes_from_start": 20},
-    {"name": "Sto. Nino, Gapan", "lat": 15.3458, "lng": 120.9488, "minutes_from_start": 21},
-    {"name": "San Leonardo Welcome", "lat": 15.3498, "lng": 120.9498, "minutes_from_start": 23},
-    {"name": "Castellano, DGDLH", "lat": 15.3588, "lng": 120.9538, "minutes_from_start": 24},
-    {"name": "Northview Heights", "lat": 15.3648, "lng": 120.9562, "minutes_from_start": 25},
-    {"name": "Jaen Diversion", "lat": 15.3685, "lng": 120.9560, "minutes_from_start": 27},
-    {"name": "NEECO II - Area 2", "lat": 15.3755, "lng": 120.9575, "minutes_from_start": 28},
-    {"name": "San Leonardo Rice Mill", "lat": 15.3830, "lng": 120.9592, "minutes_from_start": 30},
-    {"name": "V. Del Rosario Rice Mill", "lat": 15.3905, "lng": 120.9607, "minutes_from_start": 32},
-    {"name": "Eco Energy Fuel Stop", "lat": 15.3980, "lng": 120.9620, "minutes_from_start": 34},
-    {"name": "Tabuating Magnolia", "lat": 15.4060, "lng": 120.9630, "minutes_from_start": 36},
-    {"name": "Fuel Star Sta. Rosa", "lat": 15.4140, "lng": 120.9640, "minutes_from_start": 38},
-    {"name": "San Mariano", "lat": 15.4230, "lng": 120.9648, "minutes_from_start": 40},
-    {"name": "Sta. Rosa Newstar", "lat": 15.4320, "lng": 120.9654, "minutes_from_start": 42},
-    {"name": "San Gregorio", "lat": 15.4410, "lng": 120.9659, "minutes_from_start": 44},
-    {"name": "NEUST Sumacab", "lat": 15.4500, "lng": 120.9662, "minutes_from_start": 47},
-    {"name": "NE Pacific", "lat": 15.4600, "lng": 120.9664, "minutes_from_start": 49},
-    {"name": "Lamarang", "lat": 15.4730, "lng": 120.9665, "minutes_from_start": 52},
-    {"name": "Cabanatuan Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 55},
+    {"name": "Gajoda Garage and Office", "lat": 15.284472, "lng": 120.938750, "minutes_from_start": 0, "landmark": "Gajoda terminal, garage, and office"},
+    {"name": "San Isidro Town Proper", "lat": 15.3295, "lng": 120.9392, "minutes_from_start": 10},
+    {"name": "Malapit, San Isidro", "lat": 15.3335, "lng": 120.9426, "minutes_from_start": 12},
+    {"name": "San Isidro Border", "lat": 15.3368, "lng": 120.9450, "minutes_from_start": 13},
+    {"name": "San Nicolas, Brgy. Chalmers", "lat": 15.3408, "lng": 120.9472, "minutes_from_start": 14},
+    {"name": "Sto. Nino, Gapan", "lat": 15.3458, "lng": 120.9488, "minutes_from_start": 16},
+    {"name": "San Leonardo Welcome", "lat": 15.3498, "lng": 120.9498, "minutes_from_start": 18},
+    {"name": "Castellano, DGDLH", "lat": 15.3588, "lng": 120.9538, "minutes_from_start": 20},
+    {"name": "Northview Heights", "lat": 15.3648, "lng": 120.9562, "minutes_from_start": 22},
+    {"name": "Jaen Diversion", "lat": 15.3685, "lng": 120.9560, "minutes_from_start": 24},
+    {"name": "NEECO II - Area 2", "lat": 15.3755, "lng": 120.9575, "minutes_from_start": 26},
+    {"name": "San Leonardo Rice Mill", "lat": 15.3830, "lng": 120.9592, "minutes_from_start": 28},
+    {"name": "V. Del Rosario Rice Mill", "lat": 15.3905, "lng": 120.9607, "minutes_from_start": 30},
+    {"name": "Eco Energy Fuel Stop", "lat": 15.3980, "lng": 120.9620, "minutes_from_start": 32},
+    {"name": "Tabuating Magnolia", "lat": 15.4060, "lng": 120.9630, "minutes_from_start": 34},
+    {"name": "Fuel Star Sta. Rosa", "lat": 15.4140, "lng": 120.9640, "minutes_from_start": 36},
+    {"name": "San Mariano", "lat": 15.4230, "lng": 120.9648, "minutes_from_start": 38},
+    {"name": "Sta. Rosa Newstar", "lat": 15.4320, "lng": 120.9654, "minutes_from_start": 40},
+    {"name": "San Gregorio", "lat": 15.4410, "lng": 120.9659, "minutes_from_start": 42},
+    {"name": "NEUST Sumacab", "lat": 15.4500, "lng": 120.9662, "minutes_from_start": 44},
+    {"name": "NE Pacific", "lat": 15.4600, "lng": 120.9664, "minutes_from_start": 46},
+    {"name": "Lamarang", "lat": 15.4730, "lng": 120.9665, "minutes_from_start": 47},
+    {"name": "Cabanatuan Terminal", "lat": 15.4865, "lng": 120.9667, "minutes_from_start": 48, "landmark": "Cabanatuan terminal"},
 ]
 CORRIDOR_STOP_NAMES = [stop["name"] for stop in CORRIDOR_STOP_DETAILS]
 
 
+# Build the reverse route stop list by flipping stop order and travel minutes.
 def build_reverse_stop_details(stop_details, total_minutes):
+    """Build the reverse route stop list by flipping stop order and travel minutes."""
     reversed_details = []
     for index, stop in enumerate(reversed(stop_details), start=1):
         reversed_details.append(
@@ -119,7 +125,7 @@ def build_reverse_stop_details(stop_details, total_minutes):
                 "lat": stop["lat"],
                 "lng": stop["lng"],
                 "minutes_from_start": total_minutes - int(stop["minutes_from_start"]),
-                "landmark": "Cabiao-Cabanatuan corridor stop",
+                "landmark": stop.get("landmark") or "Gajoda-Cabanatuan corridor stop",
             }
         )
     reversed_details.sort(key=lambda item: item["minutes_from_start"])
@@ -132,7 +138,7 @@ FORWARD_ROUTE_STOPS = [
         "lat": stop["lat"],
         "lng": stop["lng"],
         "minutes_from_start": stop["minutes_from_start"],
-        "landmark": "Cabiao-Cabanatuan corridor stop",
+        "landmark": stop.get("landmark") or "Gajoda-Cabanatuan corridor stop",
     }
     for stop in CORRIDOR_STOP_DETAILS
 ]
@@ -147,15 +153,21 @@ ROUTE_STOPS = {
 }
 
 
+# Return the current local datetime used for trip, GPS, and log timestamps.
 def now():
+    """Return the current local datetime used for trip, GPS, and log timestamps."""
     return datetime.now()
 
 
+# Convert a datetime value into the MySQL DATETIME string format.
 def to_db_time(value: datetime | None):
+    """Convert a datetime value into the MySQL DATETIME string format."""
     return value.strftime("%Y-%m-%d %H:%M:%S") if value else None
 
 
+# Convert a database datetime value back into a Python datetime object.
 def from_db_time(value):
+    """Convert a database datetime value back into a Python datetime object."""
     if not value:
         return None
     if isinstance(value, datetime):
@@ -163,7 +175,9 @@ def from_db_time(value):
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
 
 
+# Classify bus occupancy as Low, Medium, or High based on capacity ratio.
 def classify_capacity(occupancy, capacity=DEFAULT_BUS_CAPACITY):
+    """Classify bus occupancy as Low, Medium, or High based on capacity ratio."""
     safe_capacity = max(capacity or DEFAULT_BUS_CAPACITY, 1)
     ratio = occupancy / safe_capacity
 
@@ -174,7 +188,9 @@ def classify_capacity(occupancy, capacity=DEFAULT_BUS_CAPACITY):
     return "High"
 
 
+# Return occupancy count, capacity limit, percent full, and crowd label.
 def capacity_details(occupancy, capacity=DEFAULT_BUS_CAPACITY):
+    """Return occupancy count, capacity limit, percent full, and crowd label."""
     safe_capacity = max(capacity or DEFAULT_BUS_CAPACITY, 1)
     percent = round((occupancy / safe_capacity) * 100)
     return {
@@ -185,14 +201,18 @@ def capacity_details(occupancy, capacity=DEFAULT_BUS_CAPACITY):
     }
 
 
+# Safely parse form/API input into a non-negative integer.
 def to_non_negative_int(value, default=0):
+    """Safely parse form/API input into a non-negative integer."""
     try:
         return max(int(value), 0)
     except (TypeError, ValueError):
         return default
 
 
+# Parse stored route coordinate JSON into Leaflet-ready latitude/longitude pairs.
 def parse_route_coords(coords_json):
+    """Parse stored route coordinate JSON into Leaflet-ready latitude/longitude pairs."""
     if isinstance(coords_json, bytes):
         coords_json = coords_json.decode("utf-8")
     try:
@@ -212,7 +232,9 @@ def parse_route_coords(coords_json):
         return []
 
 
+# Convert database values such as Decimal and datetime into JSON-safe values.
 def normalize_json_value(value):
+    """Convert database values such as Decimal and datetime into JSON-safe values."""
     if isinstance(value, dict):
         return {key: normalize_json_value(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -228,15 +250,21 @@ def normalize_json_value(value):
     return value
 
 
+# Create a simple lowercase identifier from a display label.
 def slugify_label(value):
+    """Create a simple lowercase identifier from a display label."""
     return "".join(char.lower() if char.isalnum() else "-" for char in (value or "")).strip("-")
 
 
+# Return cached stop details for a route name.
 def get_route_stop_details(route_name):
+    """Return cached stop details for a route name."""
     return [dict(stop, sequence=index + 1) for index, stop in enumerate(ROUTE_STOP_DETAILS.get(route_name, []))]
 
 
+# Rebuild in-memory route stop lookup data from database rows.
 def rebuild_route_stop_cache(stop_rows):
+    """Rebuild in-memory route stop lookup data from database rows."""
     route_stop_details = {}
     for row in stop_rows:
         route_stop_details.setdefault(row["route_name"], []).append(
@@ -259,7 +287,9 @@ def rebuild_route_stop_cache(stop_rows):
     return route_stop_details, route_stops
 
 
+# Load published route stops from the database into the route stop cache.
 def refresh_route_stop_cache(conn):
+    """Load published route stops from the database into the route stop cache."""
     global ROUTE_STOP_DETAILS, ROUTE_STOPS
     stop_rows = conn.execute(
         """
@@ -285,18 +315,24 @@ def refresh_route_stop_cache(conn):
         ROUTE_STOPS = route_stops
 
 
+# Normalize stop names for case-insensitive comparisons.
 def stop_name_key(value):
+    """Normalize stop names for case-insensitive comparisons."""
     return " ".join((value or "").lower().split())
 
 
+# Safely parse a value into a float with a fallback default.
 def to_float(value, default=0.0):
+    """Safely parse a value into a float with a fallback default."""
     try:
         return float(value)
     except (TypeError, ValueError):
         return default
 
 
+# Safely parse fare values into Decimal for money calculations.
 def to_decimal(value, default="0.00"):
+    """Safely parse fare values into Decimal for money calculations."""
     if isinstance(value, Decimal):
         return value
     try:
@@ -305,11 +341,15 @@ def to_decimal(value, default="0.00"):
         return Decimal(default)
 
 
+# Round Decimal money values to two decimal places.
 def quantize_money(value):
+    """Round Decimal money values to two decimal places."""
     return to_decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+# Calculate straight-line distance in kilometers between two GPS points.
 def distance_between_points_km(lat_a, lng_a, lat_b, lng_b):
+    """Calculate straight-line distance in kilometers between two GPS points."""
     latitude_a = math.radians(float(lat_a))
     longitude_a = math.radians(float(lng_a))
     latitude_b = math.radians(float(lat_b))
@@ -324,11 +364,15 @@ def distance_between_points_km(lat_a, lng_a, lat_b, lng_b):
     return 6371 * angular_distance
 
 
+# Round a fare value to the nearest whole peso.
 def round_peso(value):
+    """Round a fare value to the nearest whole peso."""
     return to_decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
+# Estimate distance between two route stops using timing or stop sequence.
 def estimate_segment_distance(route_distance_km, route_duration_minutes, origin_stop, destination_stop, stop_count):
+    """Estimate distance between two route stops using timing or stop sequence."""
     numeric_distance_km = to_float(route_distance_km, 0.0)
     if route_duration_minutes and destination_stop["minutes_from_start"] >= origin_stop["minutes_from_start"]:
         covered_minutes = destination_stop["minutes_from_start"] - origin_stop["minutes_from_start"]
@@ -339,7 +383,9 @@ def estimate_segment_distance(route_distance_km, route_duration_minutes, origin_
     return round(numeric_distance_km * (index_gap / denominator), 1)
 
 
+# Build regular and discounted fare estimates for a route segment.
 def estimate_fare_table(distance_km, minimum_fare=15, discounted_fare=None):
+    """Build regular and discounted fare estimates for a route segment."""
     base_regular = max(round_peso(minimum_fare), Decimal("1"))
     numeric_distance_km = to_decimal(distance_km)
     extra_distance = max(numeric_distance_km - Decimal("4.00"), Decimal("0.00"))
@@ -353,13 +399,17 @@ def estimate_fare_table(distance_km, minimum_fare=15, discounted_fare=None):
     return fare_table
 
 
+# Calculate total fare for a passenger type and passenger quantity.
 def calculate_passenger_fare_total(passenger_type, quantity, distance_km=0, minimum_fare=15, discounted_fare=None):
+    """Calculate total fare for a passenger type and passenger quantity."""
     fare_table = estimate_fare_table(distance_km, minimum_fare, discounted_fare)
     unit_fare = round_peso(fare_table.get(passenger_type, fare_table["regular"]))
     return float(round_peso(unit_fare * max(int(quantity or 0), 0)))
 
 
+# Find the sequence index of a stop inside a route stop list.
 def find_stop_index(route_stops, stop_name):
+    """Find the sequence index of a stop inside a route stop list."""
     keyed_name = stop_name_key(stop_name)
     for index, stop in enumerate(route_stops):
         if stop_name_key(stop["name"]) == keyed_name:
@@ -367,7 +417,9 @@ def find_stop_index(route_stops, stop_name):
     return -1
 
 
+# Estimate which stop a live bus is nearest to based on GPS and stop labels.
 def infer_bus_stop_index(bus, route_stops):
+    """Estimate which stop a live bus is nearest to based on GPS and stop labels."""
     next_stop_index = find_stop_index(route_stops, bus.get("nextStop"))
     if next_stop_index >= 0:
         return next_stop_index
@@ -387,7 +439,9 @@ def infer_bus_stop_index(bus, route_stops):
     return nearest_index
 
 
+# Estimate minutes until a bus reaches a requested stop.
 def estimate_bus_arrival_minutes(bus, route_stops, target_stop_name):
+    """Estimate minutes until a bus reaches a requested stop."""
     target_index = find_stop_index(route_stops, target_stop_name)
     current_index = infer_bus_stop_index(bus, route_stops)
     if target_index < 0 or current_index < 0 or current_index > target_index:
@@ -398,7 +452,9 @@ def estimate_bus_arrival_minutes(bus, route_stops, target_stop_name):
     return max(target_stop["minutes_from_start"] - current_stop["minutes_from_start"], 0)
 
 
+# Determine the current route stop for a trip from GPS or fallback record data.
 def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None):
+    """Determine the current route stop for a trip from GPS or fallback record data."""
     route_stops = get_route_stop_details(trip.get("route_name"))
     if not route_stops:
         return None
@@ -410,7 +466,9 @@ def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None
             route_stops,
             key=lambda stop: distance_between_points_km(latitude, longitude, stop["lat"], stop["lng"]),
         )
-        return nearest_stop
+        nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
+        if nearest_distance <= STOP_PASS_RADIUS_KM:
+            return nearest_stop
 
     fallback_index = find_stop_index(route_stops, fallback_stop_name)
     if fallback_index >= 0:
@@ -418,7 +476,9 @@ def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None
     return route_stops[0]
 
 
+# Return valid downstream destination stops for ticketing from the current stop.
 def get_trip_destination_options(trip, current_stop_name=None):
+    """Return valid downstream destination stops for ticketing from the current stop."""
     route_stops = get_route_stop_details(trip.get("route_name"))
     current_index = find_stop_index(route_stops, current_stop_name)
     if current_index < 0:
@@ -426,7 +486,29 @@ def get_trip_destination_options(trip, current_stop_name=None):
     return route_stops[current_index + 1 :]
 
 
+# Return true when the origin and destination are ordered stops for this trip.
+def is_valid_trip_segment(trip, origin_stop_name, destination_stop_name):
+    """Return true when the origin and destination are ordered stops for this trip."""
+    route_stops = get_route_stop_details(trip.get("route_name"))
+    origin_index = find_stop_index(route_stops, origin_stop_name)
+    destination_index = find_stop_index(route_stops, destination_stop_name)
+    return origin_index >= 0 and destination_index > origin_index
+
+
+# Return true when an automatic offboard should ignore a fresh boarding record.
+def is_recent_boarding(recorded_at, reference_time=None):
+    """Return true when an automatic offboard should ignore a fresh boarding record."""
+    boarded_at = from_db_time(recorded_at)
+    if not boarded_at:
+        return False
+    current_time = reference_time or now()
+    age_seconds = (current_time - boarded_at).total_seconds()
+    return abs(age_seconds) < AUTO_OFFBOARD_BOARDING_GRACE_SECONDS
+
+
+# Estimate trip segment distance between selected origin and destination stops.
 def estimate_trip_segment_distance(trip, origin_stop_name, destination_stop_name):
+    """Estimate trip segment distance between selected origin and destination stops."""
     route_stops = get_route_stop_details(trip.get("route_name"))
     origin_index = find_stop_index(route_stops, origin_stop_name)
     destination_index = find_stop_index(route_stops, destination_stop_name)
@@ -441,7 +523,9 @@ def estimate_trip_segment_distance(trip, origin_stop_name, destination_stop_name
     )
 
 
+# Calculate conductor ticket fare for a trip segment and passenger type.
 def calculate_segment_fare_total(trip, passenger_type, quantity, origin_stop_name, destination_stop_name):
+    """Calculate conductor ticket fare for a trip segment and passenger type."""
     segment_distance = estimate_trip_segment_distance(trip, origin_stop_name, destination_stop_name)
     return calculate_passenger_fare_total(
         passenger_type,
@@ -452,16 +536,20 @@ def calculate_segment_fare_total(trip, passenger_type, quantity, origin_stop_nam
     )
 
 
+# Group currently onboard passengers by destination for conductor monitoring.
 def build_trip_destination_manifest(conn, trip, current_stop_name=None):
+    """Group currently onboard passengers by destination for conductor monitoring."""
     route_stops = get_route_stop_details(trip.get("route_name"))
     current_index = find_stop_index(route_stops, current_stop_name)
     manifest = {}
     for row in conn.execute(
         """
-        SELECT destination_stop, quantity
+        SELECT event_type, destination_stop, quantity, recorded_at
         FROM trip_transactions
-        WHERE trip_id = ? AND event_type = 'board'
-        ORDER BY recorded_at DESC, id DESC
+        WHERE trip_id = ?
+          AND destination_stop IS NOT NULL
+          AND destination_stop <> ''
+        ORDER BY recorded_at ASC, id ASC
         """,
         (trip["id"],),
     ).fetchall():
@@ -471,7 +559,11 @@ def build_trip_destination_manifest(conn, trip, current_stop_name=None):
         destination_index = find_stop_index(route_stops, destination_stop)
         if current_index >= 0 and destination_index >= 0 and destination_index <= current_index:
             continue
-        manifest[destination_stop] = manifest.get(destination_stop, 0) + int(row.get("quantity") or 0)
+        quantity = int(row.get("quantity") or 0)
+        if row.get("event_type") == "drop":
+            manifest[destination_stop] = max(manifest.get(destination_stop, 0) - quantity, 0)
+        else:
+            manifest[destination_stop] = manifest.get(destination_stop, 0) + quantity
     ordered_manifest = []
     for stop in route_stops:
         count = manifest.get(stop["name"], 0)
@@ -480,11 +572,19 @@ def build_trip_destination_manifest(conn, trip, current_stop_name=None):
     return ordered_manifest
 
 
-def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=None, longitude=None, conductor_id=None):
+# Create drop-off records for passengers whose saved destination matches the current stop.
+def auto_offboard_due_passengers(
+    conn,
+    trip,
+    current_stop_name=None,
+    latitude=None,
+    longitude=None,
+    conductor_id=None,
+    allow_next_destination_fallback=False,
+):
+    """Create drop-off records for passengers whose saved destination matches the current stop."""
     route_stops = get_route_stop_details(trip.get("route_name"))
     current_index = find_stop_index(route_stops, current_stop_name)
-    if current_index < 0:
-        return {"dropped": 0, "remaining": int(trip.get("occupancy") or 0)}
 
     destination_balances = {}
     for row in conn.execute(
@@ -504,21 +604,55 @@ def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=No
             continue
         bucket = destination_balances.setdefault(
             destination_stop,
-            {"destination_stop": destination_stop, "sequence": destination_index + 1, "boarded": 0, "dropped": 0},
+            {
+                "destination_stop": destination_stop,
+                "sequence": destination_index + 1,
+                "boarded": 0,
+                "dropped": 0,
+                "latest_boarded_at": None,
+            },
         )
         quantity = int(row.get("quantity") or 0)
         if row.get("event_type") == "drop":
             bucket["dropped"] += quantity
         else:
             bucket["boarded"] += quantity
+            bucket["latest_boarded_at"] = row.get("recorded_at")
 
     current_outstanding = sum(max(item["boarded"] - item["dropped"], 0) for item in destination_balances.values())
-    due_destinations = [
+    has_recent_boarding = any(
+        item["boarded"] > item["dropped"] and is_recent_boarding(item.get("latest_boarded_at"))
+        for item in destination_balances.values()
+    )
+    if has_recent_boarding and not allow_next_destination_fallback:
+        return {"dropped": 0, "remaining": current_outstanding}
+
+    auto_due_candidates = [
         item
         for item in destination_balances.values()
-        if item["sequence"] - 1 <= current_index and item["boarded"] > item["dropped"]
+        if item["boarded"] > item["dropped"]
     ]
+    if current_index >= 0:
+        due_destinations = [
+            item
+            for item in auto_due_candidates
+            if item["sequence"] - 1 <= current_index and item["boarded"] > item["dropped"]
+        ]
+        if not due_destinations and allow_next_destination_fallback:
+            due_destinations = [
+                item
+                for item in auto_due_candidates
+                if item["sequence"] - 1 > current_index and item["boarded"] > item["dropped"]
+            ]
+    elif allow_next_destination_fallback:
+        due_destinations = auto_due_candidates
+    else:
+        return {"dropped": 0, "remaining": current_outstanding}
     due_destinations.sort(key=lambda item: item["sequence"])
+    if allow_next_destination_fallback and due_destinations and (
+        current_index < 0 or due_destinations[0]["sequence"] - 1 > current_index
+    ):
+        due_destinations = due_destinations[:1]
     if not due_destinations:
         return {"dropped": 0, "remaining": current_outstanding}
 
@@ -528,6 +662,7 @@ def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=No
         quantity = item["boarded"] - item["dropped"]
         current_outstanding = max(current_outstanding - quantity, 0)
         total_dropped += quantity
+        offboard_stop = current_stop_name or item["destination_stop"]
         conn.execute(
             """
             INSERT INTO trip_transactions (
@@ -540,8 +675,8 @@ def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=No
                 trip["id"],
                 conductor_id,
                 quantity,
-                current_stop_name or item["destination_stop"],
-                current_stop_name or item["destination_stop"],
+                offboard_stop,
+                offboard_stop,
                 item["destination_stop"],
                 float(latitude) if latitude is not None else None,
                 float(longitude) if longitude is not None else None,
@@ -550,7 +685,8 @@ def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=No
             ),
         )
 
-    manifest = sync_trip_occupancy_from_destinations(conn, trip, current_stop_name)
+    sync_stop_name = current_stop_name or (due_destinations[-1]["destination_stop"] if due_destinations else None)
+    manifest = sync_trip_occupancy_from_destinations(conn, trip, sync_stop_name)
     remaining = sum(item["count"] for item in manifest)
     crowd_level = classify_capacity(remaining, trip.get("capacity"))
     conn.execute(
@@ -583,7 +719,9 @@ def auto_offboard_due_passengers(conn, trip, current_stop_name=None, latitude=No
     return {"dropped": total_dropped, "remaining": remaining}
 
 
+# Recalculate active trip occupancy from the destination manifest.
 def sync_trip_occupancy_from_destinations(conn, trip, current_stop_name=None):
+    """Recalculate active trip occupancy from the destination manifest."""
     manifest = build_trip_destination_manifest(conn, trip, current_stop_name)
     occupancy = sum(item["count"] for item in manifest)
     capacity = max(int(trip.get("capacity") or DEFAULT_BUS_CAPACITY), 1)
@@ -601,7 +739,9 @@ def sync_trip_occupancy_from_destinations(conn, trip, current_stop_name=None):
     return manifest
 
 
+# Return currently active public service alerts with route context.
 def get_active_service_alerts(conn):
+    """Return currently active public service alerts with route context."""
     rows = conn.execute(
         """
         SELECT sa.id,
@@ -630,7 +770,9 @@ def get_active_service_alerts(conn):
     return [dict(row) for row in rows]
 
 
+# Publish or clear the automatic service alert connected to an active trip.
 def sync_trip_service_alert(conn, trip_id, is_active):
+    """Publish or clear the automatic service alert connected to an active trip."""
     trip = conn.execute(
         """
         SELECT t.id, t.started_at, b.plate_number, r.id AS route_id, r.route_name, r.start_point, r.end_point
@@ -674,7 +816,9 @@ def sync_trip_service_alert(conn, trip_id, is_active):
         conn.execute("UPDATE service_alerts SET is_active = 0 WHERE id = ?", (existing_alert["id"],))
 
 
+# Build public route, stop, fare, and alert data for commuter pages and APIs.
 def build_public_commuter_data(conn, live_data=None):
+    """Build public route, stop, fare, and alert data for commuter pages and APIs."""
     live_data = live_data or build_live_bus_data(conn)
     active_alerts = get_active_service_alerts(conn)
     route_rows = [
@@ -786,20 +930,9 @@ def build_public_commuter_data(conn, live_data=None):
     }
 
 
-def get_monitoring_mode(notes):
-    note_text = notes or ""
-    if "[monitoring:auto]" in note_text:
-        return "auto"
-    return "manual"
-
-
-def set_monitoring_mode(notes, mode):
-    cleaned = (notes or "").replace("[monitoring:auto]", "").replace("[monitoring:manual]", "").strip()
-    prefix = f"[monitoring:{mode}]"
-    return f"{prefix} {cleaned}".strip()
-
-
+# Create a readable location label when GPS is not exactly on a known stop.
 def derive_trip_location_label(trip, latitude, longitude):
+    """Create a readable location label when GPS is not exactly on a known stop."""
     route_stops = ROUTE_STOPS.get(trip.get("route_name") or "", [])
     if route_stops:
         nearest_stop = min(
@@ -820,7 +953,9 @@ def derive_trip_location_label(trip, latitude, longitude):
     return f"On route to {trip.get('end_point') or 'terminal'}"
 
 
+# Render a chart as an in-memory PNG image for PDF reports.
 def render_chart_image(title, labels, values, chart_type="bar", color="#D60000"):
+    """Render a chart as an in-memory PNG image for PDF reports."""
     figure, axis = plt.subplots(figsize=(6.8, 2.8))
     axis.set_title(title, fontsize=12, fontweight="bold")
 
@@ -844,7 +979,9 @@ def render_chart_image(title, labels, values, chart_type="bar", color="#D60000")
     return chart_buffer
 
 
+# Generate the downloadable admin PDF report from dashboard overview data.
 def build_admin_pdf_report(overview):
+    """Generate the downloadable admin PDF report from dashboard overview data."""
     pdf_buffer = BytesIO()
     document = SimpleDocTemplate(
         pdf_buffer,
@@ -1044,49 +1181,6 @@ def build_admin_pdf_report(overview):
                     styles["Heading4"],
                 )
             )
-            bus_total_rows = [[
-                pdf_cell("Student", table_header_light_style),
-                pdf_cell("PWD", table_header_light_style),
-                pdf_cell("Senior", table_header_light_style),
-                pdf_cell("Regular", table_header_light_style),
-                pdf_cell("Total Pax", table_header_light_style),
-                pdf_cell("Student Rev", table_header_light_style),
-                pdf_cell("PWD Rev", table_header_light_style),
-                pdf_cell("Senior Rev", table_header_light_style),
-                pdf_cell("Regular Rev", table_header_light_style),
-                pdf_cell("Total Revenue", table_header_light_style),
-            ], [
-                pdf_cell(bus["passengers_by_type"]["student"]),
-                pdf_cell(bus["passengers_by_type"]["pwd"]),
-                pdf_cell(bus["passengers_by_type"]["senior"]),
-                pdf_cell(bus["passengers_by_type"]["regular"]),
-                pdf_cell(bus["total_passengers"]),
-                pdf_cell(f"PHP {bus['revenue_by_type']['student']:.2f}"),
-                pdf_cell(f"PHP {bus['revenue_by_type']['pwd']:.2f}"),
-                pdf_cell(f"PHP {bus['revenue_by_type']['senior']:.2f}"),
-                pdf_cell(f"PHP {bus['revenue_by_type']['regular']:.2f}"),
-                pdf_cell(f"PHP {bus['total_revenue']:.2f}"),
-            ]]
-            bus_total_table = Table(
-                bus_total_rows,
-                colWidths=[0.5 * inch, 0.5 * inch, 0.5 * inch, 0.55 * inch, 0.6 * inch, 0.72 * inch, 0.72 * inch, 0.72 * inch, 0.76 * inch, 0.86 * inch],
-                repeatRows=1,
-            )
-            bus_total_table.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fee2e2")),
-                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#7f1d1d")),
-                        ("BACKGROUND", (0, 1), (-1, 1), colors.whitesmoke),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dbe2ea")),
-                        ("PADDING", (0, 0), (-1, -1), 6),
-                        ("FONTSIZE", (0, 0), (-1, -1), 7),
-                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ]
-                )
-            )
-            story.append(bus_total_table)
-            story.append(Spacer(1, 0.08 * inch))
             if bus["rows"]:
                 trip_rows = [[
                     pdf_cell("Date", table_header_dark_style),
@@ -1244,7 +1338,9 @@ def build_admin_pdf_report(overview):
     return pdf_buffer
 
 
+# Fetch the newest GPS log for a trip.
 def get_latest_trip_gps(conn, trip_id):
+    """Fetch the newest GPS log for a trip."""
     row = conn.execute(
         """
         SELECT latitude, longitude, recorded_at
@@ -1258,7 +1354,39 @@ def get_latest_trip_gps(conn, trip_id):
     return dict(row) if row else None
 
 
+# Store a GPS point for the active trip and offboard passengers whose destinations were passed.
+def record_trip_gps_location(conn, trip, latitude, longitude, conductor_id=None):
+    """Store a GPS point for the active trip and offboard passengers whose destinations were passed."""
+    latitude = float(latitude)
+    longitude = float(longitude)
+    recorded_at = to_db_time(now())
+    conn.execute(
+        """
+        INSERT INTO gps_logs (trip_id, latitude, longitude, recorded_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (trip["id"], latitude, longitude, recorded_at),
+    )
+    current_stop_details = get_trip_current_stop_details(
+        trip,
+        {"latitude": latitude, "longitude": longitude},
+        None,
+    )
+    if current_stop_details:
+        auto_offboard_due_passengers(
+            conn,
+            trip,
+            current_stop_details["name"],
+            latitude,
+            longitude,
+            conductor_id,
+        )
+    return current_stop_details
+
+
+# Fetch recent conductor ticketing transactions for one trip.
 def get_recent_trip_transactions(conn, trip_id, limit=8):
+    """Fetch recent conductor ticketing transactions for one trip."""
     rows = conn.execute(
         """
         SELECT recorded_at, event_type, passenger_type, quantity, stop_name, origin_stop, destination_stop, fare_amount, occupancy_after
@@ -1272,14 +1400,18 @@ def get_recent_trip_transactions(conn, trip_id, limit=8):
     return [dict(row) for row in rows]
 
 
+# Run a short database query and return a single row.
 def fetch_one(query, params=()):
+    """Run a short database query and return a single row."""
     conn = get_db()
     row = conn.execute(query, params).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
+# Write an auditable system activity entry.
 def log_event(conn, user_id, role, action, description):
+    """Write an auditable system activity entry."""
     conn.execute(
         """
         INSERT INTO system_logs (user_id, role, action, description, created_at)
@@ -1289,12 +1421,43 @@ def log_event(conn, user_id, role, action, description):
     )
 
 
+def role_home_endpoint(role_name):
+    """Return the default dashboard endpoint for a user role."""
+    if role_name == "admin":
+        return "admin_dashboard"
+    if role_name == "driver":
+        return "driver_dashboard"
+    if role_name == "conductor":
+        return "conductor"
+    return "login"
+
+
+# Protect Flask routes so only users with the required role can access them.
 def require_role(role_name):
+    """Protect Flask routes so only users with the required role can access them."""
     def decorator(view):
         @wraps(view)
         def wrapped(*args, **kwargs):
-            if session.get("role") != role_name:
+            user_id = session.get("user_id")
+            if not user_id:
                 return redirect(url_for("login"))
+
+            conn = get_db()
+            user = conn.execute(
+                "SELECT id, role FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            conn.close()
+
+            if not user:
+                session.clear()
+                return redirect(url_for("login"))
+
+            current_role = user["role"]
+            session["role"] = current_role
+            if current_role != role_name:
+                return redirect(url_for(role_home_endpoint(current_role)))
+
             return view(*args, **kwargs)
 
         return wrapped
@@ -1302,7 +1465,9 @@ def require_role(role_name):
     return decorator
 
 
+# Return the active trip currently assigned to a driver.
 def get_active_trip_for_driver(conn, driver_id):
+    """Return the active trip currently assigned to a driver."""
     row = conn.execute(
         """
         SELECT t.*, b.plate_number, b.capacity, b.route_color,
@@ -1310,7 +1475,7 @@ def get_active_trip_for_driver(conn, driver_id):
         FROM trips t
         JOIN buses b ON b.id = t.bus_id
         JOIN routes r ON r.id = t.route_id
-        WHERE t.driver_id = ? AND t.status = 'active'
+        WHERE t.driver_id = ? AND t.status = 'active' AND r.is_published = 1
         ORDER BY t.id DESC
         LIMIT 1
         """,
@@ -1319,7 +1484,9 @@ def get_active_trip_for_driver(conn, driver_id):
     return dict(row) if row else None
 
 
+# Return the active trip currently monitored by a conductor.
 def get_active_trip_for_conductor(conn, conductor_id):
+    """Return the active trip currently monitored by a conductor."""
     row = conn.execute(
         """
         SELECT t.*, b.plate_number, b.capacity,
@@ -1328,7 +1495,7 @@ def get_active_trip_for_conductor(conn, conductor_id):
         FROM trips t
         JOIN buses b ON b.id = t.bus_id
         JOIN routes r ON r.id = t.route_id
-        WHERE t.conductor_id = ? AND t.status = 'active'
+        WHERE t.conductor_id = ? AND t.status = 'active' AND r.is_published = 1
         ORDER BY t.id DESC
         LIMIT 1
         """,
@@ -1337,7 +1504,9 @@ def get_active_trip_for_conductor(conn, conductor_id):
     return dict(row) if row else None
 
 
+# Return the latest passenger/crowd record for a trip.
 def get_latest_trip_record(conn, trip_id):
+    """Return the latest passenger/crowd record for a trip."""
     row = conn.execute(
         """
         SELECT *
@@ -1351,7 +1520,9 @@ def get_latest_trip_record(conn, trip_id):
     return dict(row) if row else None
 
 
+# Fill chart time series gaps so days without records still appear as zero.
 def fill_missing_days(rows, key_name, days=7):
+    """Fill chart time series gaps so days without records still appear as zero."""
     lookup = {}
     for row in rows:
         key = row[key_name]
@@ -1369,7 +1540,9 @@ def fill_missing_days(rows, key_name, days=7):
     return labels, values
 
 
+# Build live bus map data from buses, active trips, GPS logs, and occupancy.
 def build_live_bus_data(conn):
+    """Build live bus map data from buses, active trips, GPS logs, and occupancy."""
     rows = conn.execute(
         """
         SELECT b.id AS bus_id,
@@ -1397,7 +1570,9 @@ def build_live_bus_data(conn):
         LEFT JOIN trips active_trip ON active_trip.id = (
             SELECT id
             FROM trips
-            WHERE bus_id = b.id AND status = 'active'
+            WHERE bus_id = b.id
+              AND status = 'active'
+              AND route_id IN (SELECT id FROM routes WHERE is_published = 1)
             ORDER BY started_at DESC, id DESC
             LIMIT 1
         )
@@ -1405,6 +1580,7 @@ def build_live_bus_data(conn):
             SELECT id
             FROM trips
             WHERE bus_id = b.id
+              AND route_id IN (SELECT id FROM routes WHERE is_published = 1)
             ORDER BY started_at DESC, id DESC
             LIMIT 1
         )
@@ -1485,6 +1661,7 @@ def build_live_bus_data(conn):
                 "capacity": capacity,
                 "routeColor": row["route_color"] or "#1d4ed8",
                 "coords": coords,
+                "stops": get_route_stop_details(row["route_name"] or FORWARD_ROUTE_NAME),
                 "history": gps_history,
             }
         )
@@ -1508,13 +1685,16 @@ def build_live_bus_data(conn):
     }
 
 
+# Generate simple decision-support insights from admin analytics values.
 def generate_ai_insights(overview):
+    """Generate simple decision-support insights from admin analytics values."""
     insights = []
 
     busiest_route = max(overview["route_rows"], key=lambda item: item["passengers"], default=None)
     if busiest_route:
         insights.append(
             {
+                "category": "Route Insight",
                 "title": f"Deploy more trips on {busiest_route['route_name']}",
                 "body": f"{busiest_route['route_name']} is carrying {busiest_route['passengers']} passengers in the reporting window, which is the highest route demand in the system.",
                 "tone": "hot",
@@ -1525,43 +1705,79 @@ def generate_ai_insights(overview):
         lift = overview["today_total"] - overview["yesterday_total"]
         insights.append(
             {
+                "category": "Demand Insight",
                 "title": "Demand is climbing today",
                 "body": f"Passenger volume is up by {lift} versus yesterday. Prepare reserve buses during the afternoon peak if that trend continues.",
                 "tone": "good",
             }
         )
-    else:
+    elif overview["today_total"] < overview["yesterday_total"]:
         drop = overview["yesterday_total"] - overview["today_total"]
         insights.append(
             {
+                "category": "Schedule Insight",
                 "title": "Use the lighter day to rebalance operations",
                 "body": f"Volume is down by {drop} versus yesterday. This is a good window to shift buses into maintenance or refine scheduling without hurting availability.",
                 "tone": "calm",
             }
         )
-
-    if overview["peak_hour_value"] >= 60:
+    else:
         insights.append(
             {
+                "category": "Demand Insight",
+                "title": "Demand is steady today",
+                "body": "Passenger volume matches yesterday so far. Keep the current dispatch plan active and watch the next peak window before adding trips.",
+                "tone": "calm",
+            }
+        )
+
+    if overview["peak_hour_value"] > 0:
+        peak_tone = "warn" if overview["peak_hour_value"] >= 60 else "good"
+        insights.append(
+            {
+                "category": "Peak Insight",
                 "title": f"Peak pressure is centered around {overview['peak_hour_label']}",
                 "body": f"Peak hour records show {overview['peak_hour_value']} passengers at {overview['peak_hour_label']}. Staff dispatch and conductor readiness should be concentrated around that time block.",
-                "tone": "warn",
+                "tone": peak_tone,
             }
         )
 
     if overview["high_crowd_count"] > 0:
         insights.append(
             {
+                "category": "Crowd Insight",
                 "title": "High-crowd trips need intervention",
                 "body": f"There are currently {overview['high_crowd_count']} active buses operating in high crowd mode. Consider route staggering or short-turning one reserve unit.",
                 "tone": "warn",
             }
         )
+    elif overview["active_bus_count"] > 0:
+        insights.append(
+            {
+                "category": "Fleet Insight",
+                "title": "Active buses are within manageable load",
+                "body": f"{overview['active_bus_count']} live-tracked buses are reporting without any high-crowd trips. Keep monitoring medium-crowd units before the next dispatch cycle.",
+                "tone": "good",
+            }
+        )
 
-    return insights[:4]
+    top_stop = max(overview["stop_rows"], key=lambda item: item["boarded"], default=None)
+    if top_stop and int(top_stop["boarded"] or 0) > 0:
+        insights.append(
+            {
+                "category": "Stop Insight",
+                "title": f"Watch boarding demand at {top_stop['stop_name']}",
+                "body": f"{top_stop['stop_name']} has {top_stop['boarded']} recorded boardings, making it the busiest boarding point in the current stop analytics.",
+                "tone": "warn" if int(top_stop["boarded"] or 0) >= 25 else "calm",
+            }
+        )
+
+    return insights[:6]
 
 
+# Summarize busiest stops by boarded and dropped passenger counts.
 def build_stop_analytics(conn):
+    """Summarize busiest stops by boarded and dropped passenger counts."""
     rows = [
         dict(row)
         for row in conn.execute(
@@ -1581,7 +1797,74 @@ def build_stop_analytics(conn):
     return rows
 
 
+# Return active bus camera configuration rows for admin monitoring.
+def build_bus_camera_rows(conn):
+    """Return active bus camera configuration rows for admin monitoring."""
+    rows = conn.execute(
+        """
+        SELECT c.id,
+               c.bus_id,
+               b.plate_number,
+               c.camera_name,
+               c.stream_type,
+               c.stream_url,
+               c.status,
+               c.is_active,
+               c.last_seen_at,
+               c.notes
+        FROM bus_cameras c
+        JOIN buses b ON b.id = c.bus_id
+        WHERE c.is_active = 1
+        ORDER BY b.plate_number, c.camera_name
+        """
+    ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "bus_id": int(row["bus_id"]),
+            "plate_number": row["plate_number"],
+            "camera_name": row["camera_name"],
+            "stream_type": row["stream_type"],
+            "stream_url": row["stream_url"] or "",
+            "status": row["status"],
+            "is_active": bool(row["is_active"]),
+            "last_seen_at": normalize_json_value(row["last_seen_at"]),
+            "notes": row["notes"] or "",
+        }
+        for row in rows
+    ]
+
+
+# Ensure a bus has the default three camera records used by admin monitoring.
+def ensure_default_bus_cameras(conn, bus_id, plate_number):
+    """Ensure a bus has the default three camera records used by admin monitoring."""
+    for camera_name, camera_purpose in DEFAULT_BUS_CAMERAS:
+        existing_camera = conn.execute(
+            "SELECT id FROM bus_cameras WHERE bus_id = ? AND camera_name = ?",
+            (bus_id, camera_name),
+        ).fetchone()
+        if existing_camera:
+            continue
+        conn.execute(
+            """
+            INSERT INTO bus_cameras (
+                bus_id, camera_name, stream_type, stream_url,
+                status, is_active, notes, created_at
+            )
+            VALUES (?, ?, 'external', NULL, 'unconfigured', 1, ?, ?)
+            """,
+            (
+                bus_id,
+                camera_name,
+                f"{camera_purpose} for {plate_number}. Add the live stream URL after hardware selection.",
+                to_db_time(now()),
+            ),
+        )
+
+
+# Return recent ticketing transactions for the admin audit table.
 def get_recent_transaction_audit(conn, limit=20):
+    """Return recent ticketing transactions for the admin audit table."""
     rows = conn.execute(
         """
         SELECT tt.recorded_at,
@@ -1608,7 +1891,9 @@ def get_recent_transaction_audit(conn, limit=20):
     return [dict(row) for row in rows]
 
 
+# Fill missing historical fare amounts on transaction records when possible.
 def backfill_missing_transaction_fares(conn):
+    """Fill missing historical fare amounts on transaction records when possible."""
     rows = conn.execute(
         """
         SELECT
@@ -1644,7 +1929,9 @@ def backfill_missing_transaction_fares(conn):
         conn.executemany("UPDATE trip_transactions SET fare_amount = ? WHERE id = ?", updates)
 
 
+# Build trip-level audit rows and summary totals for admin review.
 def build_trip_audit_summary(conn, limit=50):
+    """Build trip-level audit rows and summary totals for admin review."""
     rows = conn.execute(
         """
         SELECT
@@ -1756,7 +2043,9 @@ def build_trip_audit_summary(conn, limit=50):
 
 
 
+# Build daily bus passenger and revenue rows for reporting.
 def build_daily_bus_tabulation(conn, limit=60):
+    """Build daily bus passenger and revenue rows for reporting."""
     rows = conn.execute(
         """
         SELECT
@@ -1818,7 +2107,9 @@ def build_daily_bus_tabulation(conn, limit=60):
     return tabulation_rows
 
 
+# Convert report rows into compact chart labels and values.
 def compress_report_timeseries(rows, value_key):
+    """Convert report rows into compact chart labels and values."""
     totals = {}
     for row in rows:
         day = str(row["service_date"])
@@ -1832,7 +2123,9 @@ def compress_report_timeseries(rows, value_key):
     return ordered_days, values
 
 
+# Prepare per-bus passenger and revenue analytics for dashboard charts.
 def build_report_bus_analytics(daily_bus_rows):
+    """Prepare per-bus passenger and revenue analytics for dashboard charts."""
     bus_map = {}
     totals = {
         "student_count": 0,
@@ -1924,7 +2217,9 @@ def build_report_bus_analytics(daily_bus_rows):
     }
 
 
+# Group report rows into per-bus sections for tables and PDF output.
 def build_bus_report_sections(fleet_rows, daily_bus_rows):
+    """Group report rows into per-bus sections for tables and PDF output."""
     rows_by_bus = {}
     for row in daily_bus_rows:
         rows_by_bus.setdefault(row["plate_number"], []).append(row)
@@ -1959,7 +2254,9 @@ def build_bus_report_sections(fleet_rows, daily_bus_rows):
     return sections
 
 
+# Return user account rows for the admin profile directory.
 def build_user_directory(conn):
+    """Return user account rows for the admin profile directory."""
     rows = conn.execute(
         """
         SELECT id, username, email, role, full_name, created_at
@@ -1970,7 +2267,9 @@ def build_user_directory(conn):
     return [dict(row) for row in rows]
 
 
+# Build staff login/activity attendance rows from session and user data.
 def build_staff_attendance(conn, limit=25):
+    """Build staff login/activity attendance rows from session and user data."""
     rows = conn.execute(
         """
         SELECT
@@ -2055,7 +2354,9 @@ def build_staff_attendance(conn, limit=25):
     return attendance_rows
 
 
+# Build the full admin dashboard payload for analytics, reports, logs, and live fleet data.
 def build_admin_overview(conn):
+    """Build the full admin dashboard payload for analytics, reports, logs, and live fleet data."""
     live_data = build_live_bus_data(conn)
     today = now().date().isoformat()
     yesterday = (now().date() - timedelta(days=1)).isoformat()
@@ -2124,6 +2425,7 @@ def build_admin_overview(conn):
             }
         )
 
+    camera_rows = build_bus_camera_rows(conn)
     daily_rows = [
         dict(row)
         for row in conn.execute(
@@ -2189,7 +2491,7 @@ def build_admin_overview(conn):
         dict(row)
         for row in conn.execute(
             """
-            SELECT b.id, b.plate_number, b.status, b.capacity, b.route_color,
+            SELECT b.id, b.plate_number, b.status, b.capacity, b.route_color, b.notes,
                    r.route_name,
                    COALESCE(t.status, 'idle') AS trip_status,
                    COALESCE(t.occupancy, 0) AS occupancy,
@@ -2248,6 +2550,7 @@ def build_admin_overview(conn):
         "high_crowd_count": live_data["high_count"],
         "route_rows": route_rows,
         "live_bus_rows": live_bus_rows,
+        "camera_rows": camera_rows,
         "fleet_rows": fleet_rows,
         "recent_logs": recent_logs,
         "attendance_rows": attendance_rows,
@@ -2274,6 +2577,7 @@ def build_admin_overview(conn):
             "mix_labels": ["Students", "PWD", "Senior", "Regular"],
             "mix_values": [int(type_row["students"]), int(type_row["pwd"]), int(type_row["senior"]), int(type_row["regular"])],
             "live_buses": live_data["buses"],
+            "bus_cameras": camera_rows,
             "report_bus_analytics": report_bus_analytics,
         },
     }
@@ -2281,18 +2585,23 @@ def build_admin_overview(conn):
     return overview
 
 
+# Build the smaller live-refresh payload used by the admin dashboard API.
 def build_admin_live_payload(conn):
+    """Build the smaller live-refresh payload used by the admin dashboard API."""
     overview = build_admin_overview(conn)
     return {
         "active_bus_count": overview["active_bus_count"],
         "avg_crowd": overview["avg_crowd"],
         "live_bus_rows": overview["live_bus_rows"],
         "live_buses": overview["charts"]["live_buses"],
+        "bus_cameras": overview["camera_rows"],
         "high_crowd_count": overview["high_crowd_count"],
     }
 
 
+# Build driver dashboard data including active trip, available buses, and GPS metrics.
 def build_driver_overview(conn, driver_id):
+    """Build driver dashboard data including active trip, available buses, and GPS metrics."""
     driver = conn.execute(
         "SELECT id, username, full_name FROM users WHERE id = ?",
         (driver_id,),
@@ -2371,7 +2680,9 @@ def build_driver_overview(conn, driver_id):
     }
 
 
+# Build conductor terminal data for active trip monitoring and ticketing.
 def build_conductor_overview(conn, conductor_id):
+    """Build conductor terminal data for active trip monitoring and ticketing."""
     active_trip = get_active_trip_for_conductor(conn, conductor_id)
     available_trips = [
         dict(row)
@@ -2383,6 +2694,7 @@ def build_conductor_overview(conn, conductor_id):
             JOIN routes r ON r.id = t.route_id
             LEFT JOIN users u ON u.id = t.driver_id
             WHERE t.status = 'active'
+              AND r.is_published = 1
               AND (t.conductor_id IS NULL OR t.conductor_id = ?)
             ORDER BY t.started_at DESC, t.id DESC
             """,
@@ -2425,7 +2737,6 @@ def build_conductor_overview(conn, conductor_id):
     }
 
     if active_trip:
-        active_trip["monitoring_mode"] = get_monitoring_mode(active_trip.get("notes"))
         latest_record = get_latest_trip_record(conn, active_trip["id"])
         latest_gps = get_latest_trip_gps(conn, active_trip["id"])
         current_stop_details = get_trip_current_stop_details(
@@ -2435,14 +2746,6 @@ def build_conductor_overview(conn, conductor_id):
         )
         if current_stop_details:
             current_stop = current_stop_details["name"]
-            auto_offboard_due_passengers(
-                conn,
-                active_trip,
-                current_stop,
-                latest_gps["latitude"] if latest_gps and latest_gps["latitude"] is not None else None,
-                latest_gps["longitude"] if latest_gps and latest_gps["longitude"] is not None else None,
-                conductor_id,
-            )
         destination_options = []
         for option in get_trip_destination_options(active_trip, current_stop):
             destination_options.append(
@@ -2531,7 +2834,9 @@ def build_conductor_overview(conn, conductor_id):
     }
 
 
+# Return the default forward and reverse Gajoda-Cabanatuan route records.
 def get_default_routes():
+    """Return the default forward and reverse Gajoda-Cabanatuan route records."""
     forward_coords = [[stop["lat"], stop["lng"]] for stop in FORWARD_ROUTE_STOPS]
     reverse_coords = [[stop["lat"], stop["lng"]] for stop in REVERSE_ROUTE_STOPS]
     return [
@@ -2560,7 +2865,9 @@ def get_default_routes():
     ]
 
 
+# Insert missing default routes and refresh route geometry without overwriting admin-edited fares.
 def sync_default_routes(conn):
+    """Insert missing default routes and refresh route geometry without overwriting admin-edited fares."""
     default_routes = get_default_routes()
     default_names = [route[0] for route in default_routes]
     for route_name, start_point, end_point, distance_km, expected_duration_minutes, minimum_fare, discounted_fare, display_order, coords_json in default_routes:
@@ -2572,10 +2879,10 @@ def sync_default_routes(conn):
             conn.execute(
                 """
                 UPDATE routes
-                SET start_point = ?, end_point = ?, distance_km = ?, expected_duration_minutes = ?, minimum_fare = ?, discounted_fare = ?, display_order = ?, coords_json = ?
+                SET start_point = ?, end_point = ?, distance_km = ?, expected_duration_minutes = ?, display_order = ?, coords_json = ?
                 WHERE id = ?
                 """,
-                (start_point, end_point, distance_km, expected_duration_minutes, minimum_fare, discounted_fare, display_order, coords_json, existing["id"]),
+                (start_point, end_point, distance_km, expected_duration_minutes, display_order, coords_json, existing["id"]),
             )
         else:
             conn.execute(
@@ -2592,7 +2899,9 @@ def sync_default_routes(conn):
     )
 
 
+# Insert or update default corridor stops and route-stop ordering.
 def sync_default_stops(conn):
+    """Insert or update default corridor stops and route-stop ordering."""
     for stop in CORRIDOR_STOP_DETAILS:
         existing_stop = conn.execute(
             "SELECT id FROM stops WHERE stop_name = ?",
@@ -2608,7 +2917,7 @@ def sync_default_stops(conn):
                 (
                     stop["lat"],
                     stop["lng"],
-                    stop.get("landmark") or "Cabiao-Cabanatuan corridor stop",
+                    stop.get("landmark") or "Gajoda-Cabanatuan corridor stop",
                     existing_stop["id"],
                 ),
             )
@@ -2622,7 +2931,7 @@ def sync_default_stops(conn):
                     stop["name"],
                     stop["lat"],
                     stop["lng"],
-                    stop.get("landmark") or "Cabiao-Cabanatuan corridor stop",
+                    stop.get("landmark") or "Gajoda-Cabanatuan corridor stop",
                 ),
             )
 
@@ -2655,7 +2964,9 @@ def sync_default_stops(conn):
             )
 
 
+# Seed default users, buses, cameras, routes, stops, and service alerts.
 def seed_demo_data():
+    """Seed default users, buses, cameras, routes, stops, and service alerts."""
     conn = get_db()
     sync_default_routes(conn)
     sync_default_stops(conn)
@@ -2689,10 +3000,10 @@ def seed_demo_data():
             )
 
     buses = [
-        ("MB-01", 32, "offline", "#0f766e", "Primary unit"),
-        ("MB-02", 34, "offline", "#1d4ed8", "Secondary unit"),
-        ("MB-03", 30, "offline", "#c2410c", "Reserve unit"),
-        ("MB-04", 28, "offline", "#7c3aed", "Standby unit"),
+        ("MB-01", DEFAULT_BUS_CAPACITY, "offline", "#0f766e", "Primary unit"),
+        ("MB-02", DEFAULT_BUS_CAPACITY, "offline", "#1d4ed8", "Secondary unit"),
+        ("MB-03", DEFAULT_BUS_CAPACITY, "offline", "#c2410c", "Reserve unit"),
+        ("MB-04", DEFAULT_BUS_CAPACITY, "offline", "#7c3aed", "Standby unit"),
     ]
     for plate_number, capacity, status, route_color, notes in buses:
         existing_bus = conn.execute(
@@ -2703,10 +3014,10 @@ def seed_demo_data():
             conn.execute(
                 """
                 UPDATE buses
-                SET capacity = ?, route_color = ?, notes = ?
+                SET route_color = ?, notes = ?
                 WHERE id = ?
                 """,
-                (capacity, route_color, notes, existing_bus["id"]),
+                (route_color, notes, existing_bus["id"]),
             )
         else:
             conn.execute(
@@ -2716,6 +3027,9 @@ def seed_demo_data():
                 """,
                 (plate_number, capacity, status, route_color, notes),
             )
+
+    for bus in conn.execute("SELECT id, plate_number FROM buses ORDER BY plate_number").fetchall():
+        ensure_default_bus_cameras(conn, bus["id"], bus["plate_number"])
 
     seeded_trip_ids = [
         row["id"]
@@ -2739,15 +3053,15 @@ def seed_demo_data():
         WHERE action = 'Seed Complete'
            OR description IN (
                'Initial analytics dataset was generated for dashboard testing.',
-               'Juan Dela Cruz started MB-01 on Cabiao - Cabanatuan.',
+               'Juan Dela Cruz started MB-01 on Gajoda Terminal to Cabanatuan.',
                'Ana Ramos attached crowd analytics to MB-01.',
-               'Rico Mendoza started MB-02 on Gapan - Cabanatuan.'
+               'Rico Mendoza started MB-02 on Cabanatuan to Gajoda Terminal.'
            )
         """
     )
 
     default_alerts = [
-        ("Cabiao peak boarding advisory", "Board early at Cabiao Town Proper during the afternoon peak because crowding builds quickly once the trip leaves San Isidro.", "warning", FORWARD_ROUTE_NAME, "Cabiao Town Proper"),
+        ("Gajoda terminal boarding advisory", "Board early at the Gajoda garage and office terminal during peak periods because crowding can build before trips reach Cabanatuan.", "warning", FORWARD_ROUTE_NAME, "Gajoda Garage and Office"),
         ("Tracker ETA notice", "Next-bus estimates depend on recent GPS updates from active trips and may pause when a unit goes offline.", "info", None, None),
     ]
     for title, message, severity, route_name, stop_name in default_alerts:
@@ -2775,8 +3089,20 @@ bootstrap_db()
 seed_demo_data()
 
 
+@app.after_request
+def add_protected_cache_headers(response):
+    """Prevent browsers from caching role-protected pages and API responses."""
+    if request.path.startswith(PROTECTED_PATH_PREFIXES):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @app.route("/")
+# Render the public homepage with live service preview and commuter notices.
 def landing():
+    """Render the public homepage with live service preview and commuter notices."""
     conn = get_db()
     live_data = build_live_bus_data(conn)
     commuter_data = build_public_commuter_data(conn, live_data)
@@ -2802,7 +3128,9 @@ def landing():
 
 
 @app.route("/track")
+# Render the public commuter tracker with map, route planner, and bus list.
 def tracker():
+    """Render the public commuter tracker with map, route planner, and bus list."""
     conn = get_db()
     live_data = build_live_bus_data(conn)
     commuter_data = build_public_commuter_data(conn, live_data)
@@ -2822,7 +3150,9 @@ def tracker():
 
 
 @app.route("/api/public-commuter")
+# Return public route, stop, fare, and alert data as JSON.
 def api_public_commuter():
+    """Return public route, stop, fare, and alert data as JSON."""
     conn = get_db()
     live_data = build_live_bus_data(conn)
     payload = build_public_commuter_data(conn, live_data)
@@ -2831,7 +3161,9 @@ def api_public_commuter():
 
 
 @app.route("/login", methods=["GET", "POST"])
+# Authenticate users and redirect them to their role-specific dashboard.
 def login():
+    """Authenticate users and redirect them to their role-specific dashboard."""
     if request.method == "POST":
         submitted = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -2866,7 +3198,9 @@ def login():
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
+# Handle a simple password reset lookup message for registered email addresses.
 def forgot_password():
+    """Handle a simple password reset lookup message for registered email addresses."""
     if request.method == "POST":
         email = request.form.get("email", "").strip()
         user = fetch_one("SELECT full_name FROM users WHERE email = ?", (email,))
@@ -2878,7 +3212,9 @@ def forgot_password():
 
 @app.route("/admin", methods=["GET", "POST"])
 @require_role("admin")
+# Render and process the admin dashboard for fleet, camera, route, alert, and user actions.
 def admin_dashboard():
+    """Render and process the admin dashboard for fleet, camera, route, alert, and user actions."""
     conn = get_db()
     active_tab = request.args.get("tab", "analytics")
 
@@ -2911,6 +3247,123 @@ def admin_dashboard():
                         "admin",
                         "Bus Status Updated",
                         f"Bus {bus_row['plate_number']} marked as {next_status}.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "add_bus":
+            plate_number = " ".join(request.form.get("plate_number", "").strip().upper().split())
+            capacity = max(to_non_negative_int(request.form.get("capacity"), DEFAULT_BUS_CAPACITY), 1)
+            status = request.form.get("status", "offline").strip().lower()
+            notes = request.form.get("notes", "").strip() or None
+            redirect_tab = request.form.get("redirect_tab", "operations").strip() or "operations"
+
+            if plate_number and status in {"online", "offline", "maintenance"}:
+                existing_bus = conn.execute(
+                    "SELECT id FROM buses WHERE plate_number = ?",
+                    (plate_number,),
+                ).fetchone()
+                if not existing_bus:
+                    insert_result = conn.execute(
+                        """
+                        INSERT INTO buses (plate_number, capacity, status, route_color, notes)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (plate_number, capacity, status, "#1d4ed8", notes),
+                    )
+                    ensure_default_bus_cameras(conn, insert_result.lastrowid, plate_number)
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Bus Added",
+                        f"Bus {plate_number} was added with {capacity}-passenger capacity.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "update_bus_details":
+            bus_id_raw = request.form.get("bus_id", "").strip()
+            plate_number = " ".join(request.form.get("plate_number", "").strip().upper().split())
+            capacity = max(to_non_negative_int(request.form.get("capacity"), DEFAULT_BUS_CAPACITY), 1)
+            status = request.form.get("status", "offline").strip().lower()
+            notes = request.form.get("notes", "").strip() or None
+            redirect_tab = request.form.get("redirect_tab", "add-bus").strip() or "add-bus"
+
+            if bus_id_raw.isdigit() and plate_number and status in {"online", "offline", "maintenance"}:
+                bus_id = int(bus_id_raw)
+                bus_row = conn.execute(
+                    "SELECT plate_number FROM buses WHERE id = ?",
+                    (bus_id,),
+                ).fetchone()
+                duplicate_row = conn.execute(
+                    "SELECT id FROM buses WHERE plate_number = ? AND id <> ?",
+                    (plate_number, bus_id),
+                ).fetchone()
+                if bus_row and not duplicate_row:
+                    conn.execute(
+                        """
+                        UPDATE buses
+                        SET plate_number = ?,
+                            capacity = ?,
+                            status = ?,
+                            notes = ?
+                        WHERE id = ?
+                        """,
+                        (plate_number, capacity, status, notes, bus_id),
+                    )
+                    ensure_default_bus_cameras(conn, bus_id, plate_number)
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Bus Details Updated",
+                        f"Bus {bus_row['plate_number']} was updated to {plate_number} with {capacity} seats.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "update_camera_settings":
+            camera_id_raw = request.form.get("camera_id", "").strip()
+            redirect_tab = request.form.get("redirect_tab", "operations").strip() or "operations"
+            camera_name = request.form.get("camera_name", "").strip() or "Passenger Cabin"
+            stream_type = request.form.get("stream_type", "external").strip().lower()
+            stream_url = request.form.get("stream_url", "").strip() or None
+            status = request.form.get("status", "unconfigured").strip().lower()
+            notes = request.form.get("notes", "").strip() or None
+
+            if camera_id_raw.isdigit() and stream_type in CAMERA_STREAM_TYPES and status in CAMERA_STATUSES:
+                camera_id = int(camera_id_raw)
+                camera_row = conn.execute(
+                    """
+                    SELECT c.id, c.camera_name, c.last_seen_at, b.plate_number
+                    FROM bus_cameras c
+                    JOIN buses b ON b.id = c.bus_id
+                    WHERE c.id = ?
+                    """,
+                    (camera_id,),
+                ).fetchone()
+                if camera_row:
+                    last_seen_at = to_db_time(now()) if status == "online" else camera_row["last_seen_at"]
+                    conn.execute(
+                        """
+                        UPDATE bus_cameras
+                        SET camera_name = ?,
+                            stream_type = ?,
+                            stream_url = ?,
+                            status = ?,
+                            last_seen_at = ?,
+                            notes = ?
+                        WHERE id = ?
+                        """,
+                        (camera_name, stream_type, stream_url, status, last_seen_at, notes, camera_id),
+                    )
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Camera Settings Updated",
+                        f"Camera {camera_row['camera_name']} for bus {camera_row['plate_number']} was set to {status}.",
                     )
                     conn.commit()
                     conn.close()
@@ -3013,7 +3466,9 @@ def admin_dashboard():
 
 
 @app.route("/api/live-buses")
+# Return live bus data for public and dashboard map refreshes.
 def api_live_buses():
+    """Return live bus data for public and dashboard map refreshes."""
     conn = get_db()
     live_data = build_live_bus_data(conn)
     conn.close()
@@ -3022,16 +3477,42 @@ def api_live_buses():
 
 @app.route("/api/admin/live")
 @require_role("admin")
+# Return admin-only live fleet and camera monitoring data.
 def api_admin_live():
+    """Return admin-only live fleet and camera monitoring data."""
     conn = get_db()
     payload = build_admin_live_payload(conn)
     conn.close()
     return jsonify(normalize_json_value(payload))
 
 
+@app.route("/api/admin/cameras")
+@require_role("admin")
+# Return all active bus camera records for the admin camera view.
+def api_admin_cameras():
+    """Return all active bus camera records for the admin camera view."""
+    conn = get_db()
+    cameras = build_bus_camera_rows(conn)
+    conn.close()
+    return jsonify({"bus_cameras": normalize_json_value(cameras)})
+
+
+@app.route("/api/admin/cameras/<int:bus_id>")
+@require_role("admin")
+# Return camera records for one selected bus.
+def api_admin_bus_cameras(bus_id):
+    """Return camera records for one selected bus."""
+    conn = get_db()
+    cameras = [camera for camera in build_bus_camera_rows(conn) if camera["bus_id"] == bus_id]
+    conn.close()
+    return jsonify({"bus_cameras": normalize_json_value(cameras)})
+
+
 @app.route("/admin/report.pdf")
 @require_role("admin")
+# Download the current admin analytics report as a PDF file.
 def admin_report():
+    """Download the current admin analytics report as a PDF file."""
     conn = get_db()
     overview = build_admin_overview(conn)
     conn.close()
@@ -3046,7 +3527,9 @@ def admin_report():
 
 @app.route("/dashboard")
 @require_role("driver")
+# Render the driver trip-control dashboard.
 def driver_dashboard():
+    """Render the driver trip-control dashboard."""
     conn = get_db()
     overview = build_driver_overview(conn, session["user_id"])
     conn.close()
@@ -3055,7 +3538,9 @@ def driver_dashboard():
 
 @app.route("/tracker-device")
 @require_role("driver")
+# Render the driver GPS terminal page for live location transmission.
 def tracker_device():
+    """Render the driver GPS terminal page for live location transmission."""
     conn = get_db()
     overview = build_driver_overview(conn, session["user_id"])
     conn.close()
@@ -3064,7 +3549,9 @@ def tracker_device():
 
 @app.route("/start_trip", methods=["POST"])
 @require_role("driver")
+# Start a new driver trip for an available online bus and selected route.
 def start_trip():
+    """Start a new driver trip for an available online bus and selected route."""
     conn = get_db()
     active_trip = get_active_trip_for_driver(conn, session["user_id"])
     if active_trip:
@@ -3077,7 +3564,7 @@ def start_trip():
     source_label = "tracker device" if trip_source == "tracker-device" else "driver dashboard"
 
     bus_row = conn.execute("SELECT * FROM buses WHERE id = ? AND status = 'online'", (bus_id,)).fetchone()
-    route_row = conn.execute("SELECT * FROM routes WHERE id = ?", (route_id,)).fetchone()
+    route_row = conn.execute("SELECT * FROM routes WHERE id = ? AND is_published = 1", (route_id,)).fetchone()
     active_bus = conn.execute("SELECT id FROM trips WHERE bus_id = ? AND status = 'active'", (bus_id,)).fetchone()
 
     if not bus_row or not route_row:
@@ -3117,7 +3604,9 @@ def start_trip():
 
 @app.route("/end_trip", methods=["POST"])
 @require_role("driver")
+# Complete the driver's current active trip and save duration.
 def end_trip():
+    """Complete the driver's current active trip and save duration."""
     conn = get_db()
     trip = get_active_trip_for_driver(conn, session["user_id"])
 
@@ -3146,7 +3635,9 @@ def end_trip():
 
 @app.route("/driver/location", methods=["POST"])
 @require_role("driver")
+# Receive driver GPS coordinates and store them for live tracking.
 def driver_location():
+    """Receive driver GPS coordinates and store them for live tracking."""
     conn = get_db()
     trip = get_active_trip_for_driver(conn, session["user_id"])
 
@@ -3162,27 +3653,34 @@ def driver_location():
         conn.close()
         return jsonify({"error": "Latitude and longitude are required."}), 400
 
-    conn.execute(
-        """
-        INSERT INTO gps_logs (trip_id, latitude, longitude, recorded_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (trip["id"], float(latitude), float(longitude), to_db_time(now())),
-    )
-    current_stop_details = get_trip_current_stop_details(
-        trip,
-        {"latitude": float(latitude), "longitude": float(longitude)},
-        None,
-    )
-    if current_stop_details:
-        auto_offboard_due_passengers(
-            conn,
-            trip,
-            current_stop_details["name"],
-            float(latitude),
-            float(longitude),
-            trip.get("conductor_id"),
-        )
+    record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/conductor/location", methods=["POST"])
+@require_role("conductor")
+# Receive conductor GPS coordinates as a fallback live tracking source.
+def conductor_location():
+    """Receive conductor GPS coordinates as a fallback live tracking source."""
+    conn = get_db()
+    conductor_id = session["user_id"]
+    trip = get_active_trip_for_conductor(conn, conductor_id)
+
+    if not trip:
+        conn.close()
+        return jsonify({"error": "No active trip found."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    latitude = payload.get("latitude")
+    longitude = payload.get("longitude")
+
+    if latitude is None or longitude is None:
+        conn.close()
+        return jsonify({"error": "Latitude and longitude are required."}), 400
+
+    record_trip_gps_location(conn, trip, latitude, longitude, conductor_id)
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -3190,7 +3688,9 @@ def driver_location():
 
 @app.route("/conductor", methods=["GET", "POST"])
 @require_role("conductor")
+# Render and process conductor trip attachment, ticketing, and monitoring actions.
 def conductor():
+    """Render and process conductor trip attachment, ticketing, and monitoring actions."""
     conn = get_db()
     conductor_id = session["user_id"]
 
@@ -3200,28 +3700,16 @@ def conductor():
 
         if action == "attach_trip":
             trip_id = int(request.form.get("trip_id", 0))
-            monitoring_mode = request.form.get("monitoring_mode", "manual").strip().lower()
-            if monitoring_mode not in {"manual", "auto"}:
-                monitoring_mode = "manual"
             trip = conn.execute(
                 "SELECT t.id, t.notes, b.plate_number, r.route_name FROM trips t JOIN buses b ON b.id = t.bus_id JOIN routes r ON r.id = t.route_id WHERE t.id = ? AND t.status = 'active'",
                 (trip_id,),
             ).fetchone()
             if trip:
                 conn.execute(
-                    "UPDATE trips SET conductor_id = ?, notes = ? WHERE id = ?",
-                    (conductor_id, set_monitoring_mode(trip["notes"], monitoring_mode), trip_id),
+                    "UPDATE trips SET conductor_id = ? WHERE id = ?",
+                    (conductor_id, trip_id),
                 )
-                log_event(conn, conductor_id, "conductor", "Monitoring Attached", f"Conductor attached to trip #{trip_id} on {trip['plate_number']} ({trip['route_name']}) in {monitoring_mode} mode.")
-
-        elif action == "set_monitoring_mode" and active_trip:
-            monitoring_mode = request.form.get("monitoring_mode", "manual").strip().lower()
-            if monitoring_mode in {"manual", "auto"}:
-                conn.execute(
-                    "UPDATE trips SET notes = ? WHERE id = ?",
-                    (set_monitoring_mode(active_trip["notes"], monitoring_mode), active_trip["id"]),
-                )
-                log_event(conn, conductor_id, "conductor", "Monitoring Mode Changed", f"Trip #{active_trip['id']} switched to {monitoring_mode} monitoring.")
+                log_event(conn, conductor_id, "conductor", "Monitoring Attached", f"Conductor attached to trip #{trip_id} on {trip['plate_number']} ({trip['route_name']}).")
 
         elif action == "record_transaction" and active_trip:
             latest_gps = get_latest_trip_gps(conn, active_trip["id"])
@@ -3233,18 +3721,21 @@ def conductor():
                 latest_gps,
                 latest_record["stop_name"] if latest_record else None,
             )
-            origin_stop = current_stop_details["name"] if current_stop_details else (active_trip.get("start_point") or "Waiting for driver location")
-            destination_options = get_trip_destination_options(active_trip, origin_stop)
+            live_origin_stop = current_stop_details["name"] if current_stop_details else (active_trip.get("start_point") or "Waiting for GPS location")
+            posted_origin_stop = request.form.get("origin_stop", "").strip()
             passenger_type = request.form.get("passenger_type", "").strip().lower()
             destination_stop = request.form.get("destination_stop", "").strip()
-            valid_destination_names = {option["name"] for option in destination_options}
+            origin_stop = live_origin_stop
+            if not is_valid_trip_segment(active_trip, origin_stop, destination_stop) and is_valid_trip_segment(active_trip, posted_origin_stop, destination_stop):
+                origin_stop = posted_origin_stop
+            is_valid_destination = is_valid_trip_segment(active_trip, origin_stop, destination_stop)
 
-            if passenger_type in {"student", "pwd", "senior", "regular"} and destination_stop in valid_destination_names:
+            if passenger_type in {"student", "pwd", "senior", "regular"} and is_valid_destination:
                 fare_amount = calculate_segment_fare_total(active_trip, passenger_type, 1, origin_stop, destination_stop)
             else:
                 fare_amount = 0
             recorded_at = to_db_time(now())
-            if passenger_type in {"student", "pwd", "senior", "regular"} and destination_stop in valid_destination_names:
+            if passenger_type in {"student", "pwd", "senior", "regular"} and is_valid_destination:
                 conn.execute(
                     """
                     INSERT INTO trip_transactions (
@@ -3314,7 +3805,7 @@ def conductor():
                     conn,
                     conductor_id,
                     "conductor",
-                    "Ticket Mock Saved",
+                    "Ticket Printed",
                     f"Trip #{active_trip['id']} boarded 1 {passenger_type} passenger from {origin_stop} to {destination_stop} for PHP {fare_amount:.0f}.",
                 )
 
@@ -3334,6 +3825,7 @@ def conductor():
                 latest_gps["latitude"] if latest_gps and latest_gps["latitude"] is not None else None,
                 latest_gps["longitude"] if latest_gps and latest_gps["longitude"] is not None else None,
                 conductor_id,
+                True,
             )
 
         elif action == "stop_monitoring" and active_trip:
@@ -3361,7 +3853,9 @@ def conductor():
 
 @app.route("/api/conductor/live")
 @require_role("conductor")
+# Return live conductor trip status, current stop, occupancy, and latest GPS.
 def conductor_live():
+    """Return live conductor trip status, current stop, occupancy, and latest GPS."""
     conn = get_db()
     conductor_id = session["user_id"]
     trip = get_active_trip_for_conductor(conn, conductor_id)
@@ -3373,7 +3867,15 @@ def conductor_live():
     latest_gps = get_latest_trip_gps(conn, trip["id"])
     if not latest_gps:
         conn.close()
-        return jsonify({"active": True, "tracking": False, "stop_name": "Waiting for driver location"})
+        return jsonify(
+            {
+                "active": True,
+                "tracking": False,
+                "stop_name": "Waiting for GPS location",
+                "occupancy": int(trip.get("occupancy") or 0),
+                "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
+            }
+        )
 
     lat = float(latest_gps["latitude"])
     lng = float(latest_gps["longitude"])
@@ -3398,7 +3900,9 @@ def conductor_live():
 
 
 @app.route("/logout")
+# Clear the session and return the user to the public landing page.
 def logout():
+    """Clear the session and return the user to the public landing page."""
     session.clear()
     return redirect(url_for("landing"))
 

@@ -9,7 +9,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/conductor.css') }}">
 </head>
-<body>
+<body
+  data-conductor-live-endpoint="{{ url_for('conductor_live') }}"
+  data-conductor-location-endpoint="{{ url_for('conductor_location') }}"
+>
   <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <div class="conductor-shell">
     <header class="conductor-topbar">
@@ -24,35 +27,27 @@
         <p class="eyebrow">Conductor Terminal</p>
         <h1>Destination-first boarding capture</h1>
       </div>
-      <a href="{{ url_for('logout') }}" class="logout-button" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
     </header>
 
     {% if not overview.active_trip %}
     <section class="setup-panel">
       <div class="setup-intro">
         <span class="status idle">Waiting For Driver</span>
-        <h2>Attach to an active Cabiao-Cabanatuan trip.</h2>
-        <p>The mock terminal saves tickets to the database without printing while keeping the origin stop tied to live GPS.</p>
+        <h2>Pick the active bus for this conductor.</h2>
+        <p>The terminal saves tickets to the database, prints the receipt, and can use this device GPS if the driver tracker is unavailable.</p>
       </div>
       <form method="POST" class="setup-card attach-card">
         <input type="hidden" name="action" value="attach_trip">
         <label>
-          <span>Active Trip</span>
+          <span>Active Bus</span>
           <select name="trip_id" required>
-            <option value="">Select active trip</option>
+            <option value="">Select active bus</option>
             {% for trip in overview.available_trips %}
             <option value="{{ trip.id }}">{{ trip.plate_number }} - {{ trip.route_name }} - {{ trip.driver_name or 'No driver name' }}</option>
             {% endfor %}
           </select>
         </label>
-        <label>
-          <span>Monitoring Mode</span>
-          <select name="monitoring_mode">
-            <option value="manual" selected>Ticket Mock + Auto Origin</option>
-            <option value="auto">Auto Only</option>
-          </select>
-        </label>
-        <button type="submit">Open Ticket Mock</button>
+        <button type="submit">Open Ticket Terminal</button>
       </form>
     </section>
     {% else %}
@@ -83,20 +78,17 @@
           <div class="terminal-head">
             <div>
               <h3>Pick destination, then passenger type</h3>
-              <p>This mock follows the handheld flow: GPS decides the origin stop, the conductor picks the destination and fare type, then saves one boarding ticket.</p>
+              <p>GPS decides the origin stop, the conductor picks the destination and fare type, then prints one boarding ticket.</p>
+              <div class="printer-compat">
+                <span>58mm Bluetooth thermal printer</span>
+                <strong>Receipt width ready</strong>
+              </div>
             </div>
-            <form method="POST" class="terminal-tools">
-              <input type="hidden" name="action" value="set_monitoring_mode">
-              <select name="monitoring_mode" onchange="this.form.submit()">
-                <option value="manual" {% if overview.active_trip.monitoring_mode == 'manual' %}selected{% endif %}>Ticket Mock Active</option>
-                <option value="auto" {% if overview.active_trip.monitoring_mode == 'auto' %}selected{% endif %}>Auto Only</option>
-              </select>
-            </form>
           </div>
 
-          {% if overview.active_trip.monitoring_mode == 'manual' %}
           <form method="POST" id="ticketMockForm" class="ticket-mock-form">
             <input type="hidden" name="action" value="record_transaction">
+            <input type="hidden" name="origin_stop" id="originStopInput" value="{{ overview.current_stop }}">
             <input type="hidden" name="destination_stop" id="destinationStopInput" value="{{ overview.transaction_form.destination_stop }}">
             <input type="hidden" name="passenger_type" id="passengerTypeInput" value="{{ overview.transaction_form.passenger_type }}">
 
@@ -146,7 +138,8 @@
                 <p><strong>Fare:</strong> <span id="summaryFare">PHP 0</span></p>
               </div>
               <div class="action-bar">
-                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Save Mock Ticket</button>
+                <button type="button" class="secondary preview-button" id="previewMockButton" disabled>Preview Receipt</button>
+                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Print Ticket</button>
               </div>
             </section>
           </form>
@@ -154,12 +147,6 @@
             <input type="hidden" name="action" value="offboard_due">
             <button type="submit" class="secondary">Off Board Current Stop</button>
           </form>
-          {% else %}
-          <div class="auto-state">
-            <strong>Automatic monitoring is active.</strong>
-            <p>Switch back to ticket mock mode when the conductor is ready to log a boarding transaction.</p>
-          </div>
-          {% endif %}
 
           <form method="POST" class="terminal-stop">
             <input type="hidden" name="action" value="stop_monitoring">
@@ -214,91 +201,25 @@
       </div>
     </section>
     {% endif %}
+
+    <div class="conductor-footer-actions">
+      <a href="{{ url_for('logout') }}" class="logout-button" data-confirm="Are you sure you want to log out?">Logout</a>
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% if overview.active_trip %}
-  <script>
-    const conductorLiveEndpoint = "{{ url_for('conductor_live') }}";
-    const trackingStatus = document.getElementById('trackingStatus');
-    const currentStop = document.getElementById('currentStop');
-    const currentCoords = document.getElementById('currentCoords');
-    const lastUpdate = document.getElementById('lastUpdate');
-    const summaryOrigin = document.getElementById('summaryOrigin');
-    const destinationStopInput = document.getElementById('destinationStopInput');
-    const passengerTypeInput = document.getElementById('passengerTypeInput');
-    const summaryDestination = document.getElementById('summaryDestination');
-    const summaryPassengerType = document.getElementById('summaryPassengerType');
-    const summaryFare = document.getElementById('summaryFare');
-    const saveMockButton = document.getElementById('saveMockButton');
-    const currentOccupancy = document.getElementById('currentOccupancy');
-    const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
-    const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
-    let selectedDestinationButton = null;
-    let selectedPassengerButton = null;
-
-    function updateTicketSummary() {
-      const passengerType = passengerTypeInput ? passengerTypeInput.value : '';
-      const destination = destinationStopInput ? destinationStopInput.value : '';
-      const fareValue = selectedDestinationButton && passengerType
-        ? Number(selectedDestinationButton.dataset[`fare${passengerType.charAt(0).toUpperCase()}${passengerType.slice(1)}`] || 0)
-        : 0;
-
-      if (summaryDestination) summaryDestination.textContent = destination || 'Select destination';
-      if (summaryPassengerType) summaryPassengerType.textContent = passengerType ? passengerType.charAt(0).toUpperCase() + passengerType.slice(1) : 'Select passenger type';
-      if (summaryFare) summaryFare.textContent = `PHP ${Math.round(fareValue || 0)}`;
-      if (saveMockButton) saveMockButton.disabled = !(destination && passengerType);
+  <script type="application/json" id="conductorTicketPrintContext">
+    {
+      "operator": "GAJODA TSC",
+      "plateNumber": {{ overview.active_trip.plate_number|tojson }},
+      "busNumber": {{ overview.active_trip.plate_number|tojson }},
+      "routeName": {{ overview.active_trip.route_name|tojson }},
+      "routeStart": {{ overview.active_trip.start_point|tojson }},
+      "routeEnd": {{ overview.active_trip.end_point|tojson }}
     }
-
-    destinationButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        destinationButtons.forEach((item) => item.classList.remove('is-active'));
-        button.classList.add('is-active');
-        selectedDestinationButton = button;
-        if (destinationStopInput) destinationStopInput.value = button.dataset.destination || '';
-        updateTicketSummary();
-      });
-    });
-
-    passengerButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        passengerButtons.forEach((item) => item.classList.remove('is-active'));
-        button.classList.add('is-active');
-        selectedPassengerButton = button;
-        if (passengerTypeInput) passengerTypeInput.value = button.dataset.passengerType || '';
-        updateTicketSummary();
-      });
-    });
-
-    async function refreshDriverLocation() {
-      const response = await fetch(conductorLiveEndpoint, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error('Failed to load driver location');
-      }
-      const payload = await response.json();
-      if (!payload.active) {
-        if (trackingStatus) trackingStatus.textContent = 'No active trip';
-        return;
-      }
-      if (trackingStatus) trackingStatus.textContent = payload.tracking ? 'Live GPS active' : 'Waiting for driver GPS';
-      const stopLabel = payload.stop_name || 'On route';
-      if (currentStop) currentStop.textContent = stopLabel;
-      if (currentCoords) currentCoords.textContent = stopLabel;
-      if (summaryOrigin) summaryOrigin.textContent = stopLabel;
-      if (lastUpdate) lastUpdate.textContent = payload.recorded_at || 'No live update yet';
-      if (currentOccupancy && payload.occupancy !== undefined && payload.capacity !== undefined) {
-        currentOccupancy.textContent = `${payload.occupancy}/${payload.capacity}`;
-      }
-    }
-
-    updateTicketSummary();
-    refreshDriverLocation().catch(() => {
-      if (trackingStatus) trackingStatus.textContent = 'Waiting for driver GPS';
-    });
-    setInterval(() => refreshDriverLocation().catch(() => {
-      if (trackingStatus) trackingStatus.textContent = 'GPS refresh failed';
-    }), 15000);
   </script>
+  <script src="{{ url_for('static', filename='js/conductor.js') }}"></script>
   {% endif %}
 </body>
 </html>
