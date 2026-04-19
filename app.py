@@ -4,6 +4,8 @@ import csv
 import io
 import json
 import math
+import os
+import secrets
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
@@ -13,18 +15,30 @@ from xml.sax.saxutils import escape
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, session, url_for
+from flask_socketio import SocketIO, join_room
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from connection import bootstrap_db, get_db
 
 
 app = Flask(__name__)
-app.secret_key = "codexmbs-clean-rebuild-secret"
+IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or os.environ.get("APP_ENV") == "production"
+SECRET_KEY = os.environ.get("SECRET_KEY") or os.environ.get("FLASK_SECRET_KEY")
+if IS_PRODUCTION and not SECRET_KEY:
+    raise RuntimeError("Set SECRET_KEY before running in production.")
+app.secret_key = SECRET_KEY or "codexmbs-local-development-secret"
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=IS_PRODUCTION,
+)
+socketio = SocketIO(app, async_mode="threading")
 
 PROTECTED_PATH_PREFIXES = (
     "/admin",
@@ -37,6 +51,10 @@ PROTECTED_PATH_PREFIXES = (
     "/api/admin",
     "/api/conductor",
 )
+
+CSRF_SESSION_KEY = "_csrf_token"
+LIVE_TRACKING_ROOM = "live_tracking"
+ADMIN_LIVE_ROOM = "admin_live"
 
 DEFAULT_BUS_CAPACITY = 30
 STOP_PASS_RADIUS_KM = 0.85
@@ -79,6 +97,44 @@ ROUTE_STOPS = {
     route_name: [(stop["name"], stop["lat"], stop["lng"]) for stop in stops]
     for route_name, stops in ROUTE_STOP_DETAILS.items()
 }
+
+
+def get_csrf_token():
+    """Return the per-session CSRF token used by forms and fetch requests."""
+    token = session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+    return token
+
+
+def validate_csrf_token():
+    """Reject unsafe requests that do not include the current CSRF token."""
+    expected = session.get(CSRF_SESSION_KEY)
+    submitted = (
+        request.form.get("csrf_token")
+        or request.headers.get("X-CSRFToken")
+        or request.headers.get("X-CSRF-Token")
+    )
+    if not expected or not submitted or not secrets.compare_digest(expected, submitted):
+        if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+            return jsonify({"success": False, "error": "Invalid CSRF token."}), 400
+        abort(400)
+    return None
+
+
+@app.context_processor
+def inject_csrf_token():
+    """Expose CSRF helpers to templates."""
+    return {"csrf_token": get_csrf_token}
+
+
+@app.before_request
+def protect_unsafe_requests():
+    """Require CSRF tokens for state-changing browser requests."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        return validate_csrf_token()
+    return None
 
 FORWARD_ROUTE_NAME = "Gajoda Terminal to Cabanatuan"
 REVERSE_ROUTE_NAME = "Cabanatuan to Gajoda Terminal"
@@ -740,8 +796,44 @@ def sync_trip_occupancy_from_destinations(conn, trip, current_stop_name=None):
 
 
 # Return currently active public service alerts with route context.
+def archive_expired_service_alerts(conn):
+    """Move expired service alerts out of public visibility and into archive state."""
+    current_time = now()
+    conn.execute(
+        """
+        UPDATE service_alerts
+        SET is_active = 0,
+            archived_at = ?
+        WHERE archived_at IS NULL
+          AND (
+              expires_at <= ?
+              OR (expires_at IS NULL AND DATE(created_at) < ?)
+          )
+        """,
+        (to_db_time(current_time), to_db_time(current_time), current_time.date().isoformat()),
+    )
+    conn.commit()
+
+
+def resolve_alert_expiration(duration_key):
+    """Convert an admin alert duration option into an expiration timestamp."""
+    current_time = now()
+    if duration_key == "1h":
+        return current_time + timedelta(hours=1)
+    if duration_key == "4h":
+        return current_time + timedelta(hours=4)
+    if duration_key == "8h":
+        return current_time + timedelta(hours=8)
+    if duration_key == "24h":
+        return current_time + timedelta(hours=24)
+    if duration_key == "3d":
+        return current_time + timedelta(days=3)
+    return current_time.replace(hour=23, minute=59, second=59, microsecond=0)
+
+
 def get_active_service_alerts(conn):
     """Return currently active public service alerts with route context."""
+    archive_expired_service_alerts(conn)
     rows = conn.execute(
         """
         SELECT sa.id,
@@ -752,10 +844,13 @@ def get_active_service_alerts(conn):
                sa.message,
                sa.severity,
                sa.created_at,
+               sa.expires_at,
                r.route_name
         FROM service_alerts sa
         LEFT JOIN routes r ON r.id = sa.route_id
         WHERE sa.is_active = 1
+          AND sa.archived_at IS NULL
+          AND (sa.expires_at IS NULL OR sa.expires_at > ?)
         ORDER BY
             CASE sa.severity
                 WHEN 'critical' THEN 0
@@ -764,8 +859,35 @@ def get_active_service_alerts(conn):
             END,
             sa.created_at DESC,
             sa.id DESC
-        LIMIT 8
+        """,
+        (to_db_time(now()),),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_archived_service_alerts(conn, limit=30):
+    """Return archived service alerts for admin review."""
+    archive_expired_service_alerts(conn)
+    rows = conn.execute(
         """
+        SELECT sa.id,
+               sa.trip_id,
+               sa.route_id,
+               sa.stop_name,
+               sa.title,
+               sa.message,
+               sa.severity,
+               sa.created_at,
+               sa.expires_at,
+               sa.archived_at,
+               r.route_name
+        FROM service_alerts sa
+        LEFT JOIN routes r ON r.id = sa.route_id
+        WHERE sa.archived_at IS NOT NULL
+        ORDER BY sa.archived_at DESC, sa.id DESC
+        LIMIT %s
+        """,
+        (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -793,27 +915,36 @@ def sync_trip_service_alert(conn, trip_id, is_active):
 
     title = f"New trip active: {trip['plate_number']}"
     message = f"{trip['plate_number']} is now active on {trip['route_name']} from {trip['start_point']} to {trip['end_point']}."
+    expires_at = to_db_time(resolve_alert_expiration("end_of_day"))
 
     if is_active:
         if existing_alert:
             conn.execute(
                 """
                 UPDATE service_alerts
-                SET route_id = ?, stop_name = ?, title = ?, message = ?, severity = 'info', is_active = 1, created_at = ?
+                SET route_id = ?, stop_name = ?, title = ?, message = ?, severity = 'info', is_active = 1, created_at = ?, expires_at = ?, archived_at = NULL
                 WHERE id = ?
                 """,
-                (trip["route_id"], trip["start_point"], title, message, to_db_time(now()), existing_alert["id"]),
+                (trip["route_id"], trip["start_point"], title, message, to_db_time(now()), expires_at, existing_alert["id"]),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO service_alerts (trip_id, route_id, stop_name, title, message, severity, is_active, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, 'info', 1, NULL, ?)
+                INSERT INTO service_alerts (trip_id, route_id, stop_name, title, message, severity, is_active, created_by, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, 'info', 1, NULL, ?, ?)
                 """,
-                (trip_id, trip["route_id"], trip["start_point"], title, message, to_db_time(now())),
+                (trip_id, trip["route_id"], trip["start_point"], title, message, to_db_time(now()), expires_at),
             )
     elif existing_alert:
-        conn.execute("UPDATE service_alerts SET is_active = 0 WHERE id = ?", (existing_alert["id"],))
+        conn.execute(
+            """
+            UPDATE service_alerts
+            SET is_active = 0,
+                archived_at = ?
+            WHERE id = ?
+            """,
+            (to_db_time(now()), existing_alert["id"]),
+        )
 
 
 # Build public route, stop, fare, and alert data for commuter pages and APIs.
@@ -1419,6 +1550,27 @@ def log_event(conn, user_id, role, action, description):
         """,
         (user_id, role, action, description, to_db_time(now())),
     )
+
+
+def is_password_hash(value):
+    """Return whether a stored password value looks like a Werkzeug hash."""
+    return isinstance(value, str) and value.startswith(("scrypt:", "pbkdf2:"))
+
+
+def verify_password(stored_password, submitted_password):
+    """Check submitted credentials against hashed or legacy plain-text passwords."""
+    if is_password_hash(stored_password):
+        return check_password_hash(stored_password, submitted_password)
+    return secrets.compare_digest(str(stored_password or ""), str(submitted_password or ""))
+
+
+def ensure_password_hashed(conn, user_id, stored_password):
+    """Upgrade a legacy plain-text password row without changing the usable password."""
+    if stored_password and not is_password_hash(stored_password):
+        conn.execute(
+            "UPDATE users SET password = ? WHERE id = ?",
+            (generate_password_hash(stored_password), user_id),
+        )
 
 
 def role_home_endpoint(role_name):
@@ -2530,6 +2682,7 @@ def build_admin_overview(conn):
             }
     report_bus_analytics["bus_options"] = sorted(report_bus_analytics["buses"].keys())
     service_alerts = get_active_service_alerts(conn)
+    archived_service_alerts = get_archived_service_alerts(conn)
     user_rows = build_user_directory(conn)
 
     peak_hour_label = hourly_labels[0]
@@ -2555,6 +2708,7 @@ def build_admin_overview(conn):
         "recent_logs": recent_logs,
         "attendance_rows": attendance_rows,
         "service_alerts": service_alerts,
+        "archived_service_alerts": archived_service_alerts,
         "stop_rows": stop_rows,
         "recent_transaction_audit": recent_transaction_audit,
         "trip_audit_rows": trip_audit_rows,
@@ -2987,16 +3141,18 @@ def seed_demo_data():
     ]
     for username, email, password, role, full_name in users:
         existing_user = conn.execute(
-            "SELECT id FROM users WHERE username = ?",
+            "SELECT id, password FROM users WHERE username = ?",
             (username,),
         ).fetchone()
-        if not existing_user:
+        if existing_user:
+            ensure_password_hashed(conn, existing_user["id"], existing_user["password"])
+        else:
             conn.execute(
                 """
                 INSERT INTO users (username, email, password, role, full_name, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (username, email, password, role, full_name, to_db_time(now())),
+                (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
             )
 
     buses = [
@@ -3071,12 +3227,13 @@ def seed_demo_data():
         ).fetchone()
         if not existing_alert:
             route_row = conn.execute("SELECT id FROM routes WHERE route_name = ?", (route_name,)).fetchone() if route_name else None
+            expires_at = to_db_time(resolve_alert_expiration("end_of_day"))
             conn.execute(
                 """
-                INSERT INTO service_alerts (route_id, stop_name, title, message, severity, is_active, created_by, created_at)
-                VALUES (?, ?, ?, ?, ?, 1, NULL, ?)
+                INSERT INTO service_alerts (route_id, stop_name, title, message, severity, is_active, created_by, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, 1, NULL, ?, ?)
                 """,
-                (route_row["id"] if route_row else None, stop_name, title, message, severity, to_db_time(now())),
+                (route_row["id"] if route_row else None, stop_name, title, message, severity, to_db_time(now()), expires_at),
             )
 
     conn.commit()
@@ -3085,8 +3242,14 @@ def seed_demo_data():
     conn.close()
 
 
-bootstrap_db()
-seed_demo_data()
+def initialize_database():
+    """Create or update database tables and seed local starter data."""
+    bootstrap_db()
+    seed_demo_data()
+
+
+if os.environ.get("CODEXMBS_BOOTSTRAP_ON_IMPORT", "").lower() in {"1", "true", "yes"}:
+    initialize_database()
 
 
 @app.after_request
@@ -3174,9 +3337,10 @@ def login():
             (submitted, submitted),
         ).fetchone()
 
-        if user and user["password"] == password:
+        if user and verify_password(user["password"], password):
             session["user_id"] = user["id"]
             session["role"] = user["role"]
+            ensure_password_hashed(conn, user["id"], user["password"])
             conn.execute(
                 "INSERT INTO sessions (user_id, login_time) VALUES (?, ?)",
                 (user["id"], to_db_time(now())),
@@ -3401,18 +3565,20 @@ def admin_dashboard():
             title = request.form.get("title", "").strip()
             message = request.form.get("message", "").strip()
             severity = request.form.get("severity", "info").strip().lower()
+            duration = request.form.get("duration", "end_of_day").strip()
             route_id_raw = request.form.get("route_id", "").strip()
             stop_name = request.form.get("stop_name", "").strip() or None
             if title and message and severity in {"info", "warning", "critical"}:
                 route_id = int(route_id_raw) if route_id_raw.isdigit() else None
+                expires_at = resolve_alert_expiration(duration)
                 conn.execute(
                     """
-                    INSERT INTO service_alerts (trip_id, route_id, stop_name, title, message, severity, is_active, created_by, created_at)
-                    VALUES (NULL, ?, ?, ?, ?, ?, 1, ?, ?)
+                    INSERT INTO service_alerts (trip_id, route_id, stop_name, title, message, severity, is_active, created_by, created_at, expires_at)
+                    VALUES (NULL, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
-                    (route_id, stop_name, title, message, severity, session["user_id"], to_db_time(now())),
+                    (route_id, stop_name, title, message, severity, session["user_id"], to_db_time(now()), to_db_time(expires_at)),
                 )
-                log_event(conn, session["user_id"], "admin", "Service Alert Created", f"Service alert '{title}' was published.")
+                log_event(conn, session["user_id"], "admin", "Service Alert Created", f"Service alert '{title}' was published until {to_db_time(expires_at)}.")
                 conn.commit()
                 conn.close()
                 return redirect(url_for("admin_dashboard", tab=redirect_tab))
@@ -3423,8 +3589,8 @@ def admin_dashboard():
                 alert_id = int(alert_id_raw)
                 alert_row = conn.execute("SELECT title FROM service_alerts WHERE id = ?", (alert_id,)).fetchone()
                 if alert_row:
-                    conn.execute("UPDATE service_alerts SET is_active = 0 WHERE id = ?", (alert_id,))
-                    log_event(conn, session["user_id"], "admin", "Service Alert Cleared", f"Service alert '{alert_row['title']}' was cleared.")
+                    conn.execute("DELETE FROM service_alerts WHERE id = ?", (alert_id,))
+                    log_event(conn, session["user_id"], "admin", "Service Alert Deleted", f"Service alert '{alert_row['title']}' was deleted.")
                     conn.commit()
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
@@ -3447,7 +3613,7 @@ def admin_dashboard():
                         INSERT INTO users (username, email, password, role, full_name, created_at)
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (username, email, password, role, full_name, to_db_time(now())),
+                        (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
                     )
                     log_event(
                         conn,
@@ -3456,6 +3622,66 @@ def admin_dashboard():
                         "Profile Created",
                         f"Created {role} profile for {full_name} ({username}).",
                     )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "update_profile":
+            redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
+            user_id_raw = request.form.get("user_id", "").strip()
+            username = request.form.get("username", "").strip()
+            email = request.form.get("email", "").strip().lower()
+            password = request.form.get("password", "")
+            role = request.form.get("role", "").strip().lower()
+            full_name = request.form.get("full_name", "").strip()
+
+            if user_id_raw.isdigit() and username and email and full_name and role in {"admin", "driver", "conductor"}:
+                user_id = int(user_id_raw)
+                user_row = conn.execute("SELECT id, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
+                duplicate_user = conn.execute(
+                    "SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ?",
+                    (username, email, user_id),
+                ).fetchone()
+                admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
+                demotes_last_admin = user_row and user_row["role"] == "admin" and role != "admin" and admin_count <= 1
+                if user_row and not duplicate_user and not demotes_last_admin:
+                    if password:
+                        conn.execute(
+                            """
+                            UPDATE users
+                            SET full_name = ?, username = ?, email = ?, password = ?, role = ?
+                            WHERE id = ?
+                            """,
+                            (full_name, username, email, generate_password_hash(password), role, user_id),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            UPDATE users
+                            SET full_name = ?, username = ?, email = ?, role = ?
+                            WHERE id = ?
+                            """,
+                            (full_name, username, email, role, user_id),
+                        )
+                    log_event(conn, session["user_id"], "admin", "Profile Updated", f"Updated profile for {full_name} ({username}).")
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "delete_profile":
+            redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
+            user_id_raw = request.form.get("user_id", "").strip()
+            if user_id_raw.isdigit():
+                user_id = int(user_id_raw)
+                user_row = conn.execute("SELECT id, username, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
+                admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
+                if user_row and user_id != session["user_id"] and not (user_row["role"] == "admin" and admin_count <= 1):
+                    conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+                    conn.execute("UPDATE trips SET driver_id = NULL WHERE driver_id = ?", (user_id,))
+                    conn.execute("UPDATE trips SET conductor_id = NULL WHERE conductor_id = ?", (user_id,))
+                    conn.execute("UPDATE trip_transactions SET conductor_id = NULL WHERE conductor_id = ?", (user_id,))
+                    conn.execute("UPDATE service_alerts SET created_by = NULL WHERE created_by = ?", (user_id,))
+                    conn.execute("UPDATE system_logs SET user_id = NULL WHERE user_id = ?", (user_id,))
+                    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                    log_event(conn, session["user_id"], "admin", "Profile Deleted", f"Deleted profile for {user_row['full_name']} ({user_row['username']}).")
                     conn.commit()
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
@@ -3484,6 +3710,40 @@ def api_admin_live():
     payload = build_admin_live_payload(conn)
     conn.close()
     return jsonify(normalize_json_value(payload))
+
+
+@socketio.on("connect")
+def handle_socket_connect():
+    """Subscribe socket clients to live tracking update channels."""
+    join_room(LIVE_TRACKING_ROOM)
+    user_id = session.get("user_id")
+    if not user_id:
+        return
+
+    conn = get_db()
+    try:
+        user = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user and user["role"] == "admin":
+            join_room(ADMIN_LIVE_ROOM)
+    finally:
+        conn.close()
+
+
+def broadcast_live_tracking_update(conn):
+    """Push live tracking payloads to connected map clients."""
+    try:
+        socketio.emit(
+            "live_buses:update",
+            normalize_json_value(build_live_bus_data(conn)),
+            to=LIVE_TRACKING_ROOM,
+        )
+        socketio.emit(
+            "admin_live:update",
+            normalize_json_value(build_admin_live_payload(conn)),
+            to=ADMIN_LIVE_ROOM,
+        )
+    except Exception as error:
+        app.logger.warning("Live tracking socket broadcast failed: %s", error)
 
 
 @app.route("/api/admin/cameras")
@@ -3655,6 +3915,7 @@ def driver_location():
 
     record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
     conn.commit()
+    broadcast_live_tracking_update(conn)
     conn.close()
     return jsonify({"success": True})
 
@@ -3682,6 +3943,7 @@ def conductor_location():
 
     record_trip_gps_location(conn, trip, latitude, longitude, conductor_id)
     conn.commit()
+    broadcast_live_tracking_update(conn)
     conn.close()
     return jsonify({"success": True})
 
@@ -3908,4 +4170,11 @@ def logout():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    initialize_database()
+    socketio.run(
+        app,
+        host=os.environ.get("FLASK_RUN_HOST", "127.0.0.1"),
+        port=int(os.environ.get("FLASK_RUN_PORT", "5000")),
+        debug=os.environ.get("FLASK_DEBUG", "0").lower() in {"1", "true", "yes"},
+        allow_unsafe_werkzeug=True,
+    )

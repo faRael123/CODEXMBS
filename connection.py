@@ -1,3 +1,5 @@
+import os
+import re
 from pathlib import Path
 
 import mysql.connector
@@ -7,13 +9,27 @@ from mysql.connector import Error
 BASE_DIR = Path(__file__).resolve().parent
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 
+def _env_first(*names, default=""):
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return default
+
+
 DB_CONFIG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "",
-    "port": 3307,
-    "database": "codexmbs_db",
+    "host": _env_first("DB_HOST", "MYSQLHOST", default="localhost"),
+    "user": _env_first("DB_USER", "MYSQLUSER", default="root"),
+    "password": _env_first("DB_PASSWORD", "MYSQLPASSWORD", default=""),
+    "port": int(_env_first("DB_PORT", "MYSQLPORT", default="3307")),
+    "database": _env_first("DB_NAME", "MYSQLDATABASE", default="codexmbs_db"),
 }
+
+
+def _safe_database_name(name):
+    if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        raise ValueError("DB_NAME may only contain letters, numbers, and underscores.")
+    return name
 
 
 class CursorResult:
@@ -63,7 +79,8 @@ def bootstrap_db():
         port=DB_CONFIG["port"],
     )
     server_cursor = server_conn.cursor()
-    server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_CONFIG['database']}")
+    database_name = _safe_database_name(DB_CONFIG["database"])
+    server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
     server_conn.commit()
     server_cursor.close()
     server_conn.close()

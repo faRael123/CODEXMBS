@@ -198,6 +198,7 @@
                   <td>{{ bus.peak_occupancy }}</td>
                   <td>
                     <form method="POST" class="inline-status-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="action" value="update_bus_status">
                       <input type="hidden" name="bus_id" value="{{ bus.id }}">
                       <input type="hidden" name="redirect_tab" value="operations">
@@ -222,7 +223,7 @@
           <div>
             <p class="eyebrow">Fleet Setup</p>
             <h2>{{ admin_icon('bus') }}Add or edit buses</h2>
-            <p class="section-copy">Manage bus license or plate number, seat capacity, operating status, and unit notes from one place.</p>
+            <p class="section-copy">Manage bus name, seat capacity, operating status, and unit notes from one place.</p>
           </div>
         </div>
 
@@ -232,12 +233,13 @@
             <span>New records default to 30 seats</span>
           </div>
           <form method="POST" class="stack-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_bus">
             <input type="hidden" name="redirect_tab" value="add-bus">
             <div class="form-grid">
               <label>
-                <span>License / Plate Number</span>
-                <input type="text" name="plate_number" placeholder="MB-05" required>
+                <span>Bus Name</span>
+                <input type="text" name="plate_number" placeholder="Bus 05" required>
               </label>
               <label>
                 <span>Status</span>
@@ -264,16 +266,17 @@
         <article class="panel">
           <div class="panel-head">
             <h3>{{ admin_icon('overview') }}Edit Existing Buses</h3>
-            <span>Update license, seats, status, and notes</span>
+            <span>Update bus name, seats, status, and notes</span>
           </div>
           <div class="bus-edit-list">
             {% for bus in overview.fleet_rows %}
             <form method="POST" class="bus-edit-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="update_bus_details">
               <input type="hidden" name="bus_id" value="{{ bus.id }}">
               <input type="hidden" name="redirect_tab" value="add-bus">
               <label>
-                <span>License / Plate</span>
+                <span>Bus Name</span>
                 <input type="text" name="plate_number" value="{{ bus.plate_number }}" required>
               </label>
               <label>
@@ -356,6 +359,7 @@
           <div class="camera-config-list">
             {% for camera in overview.camera_rows %}
             <form method="POST" class="camera-config-form" data-camera-form="{{ camera.id }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="update_camera_settings">
               <input type="hidden" name="camera_id" value="{{ camera.id }}">
               <input type="hidden" name="redirect_tab" value="cameras">
@@ -640,6 +644,7 @@
                   <td>PHP {{ row.discounted_fare }}</td>
                   <td>
                     <form method="POST" class="inline-status-form route-settings-form">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="action" value="update_route_settings">
                       <input type="hidden" name="route_id" value="{{ row.id }}">
                       <input type="hidden" name="redirect_tab" value="commuter">
@@ -664,6 +669,7 @@
               <span>Publish notices for route delays, crowding, or dispatch advisories</span>
             </div>
             <form method="POST" class="stack-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="create_service_alert">
               <input type="hidden" name="redirect_tab" value="commuter">
               <label>
@@ -696,6 +702,17 @@
                   <span>Stop Name</span>
                   <input type="text" name="stop_name" placeholder="Optional specific stop">
                 </label>
+                <label>
+                  <span>Visible For</span>
+                  <select name="duration">
+                    <option value="end_of_day" selected>Until end of day</option>
+                    <option value="1h">1 hour</option>
+                    <option value="4h">4 hours</option>
+                    <option value="8h">8 hours</option>
+                    <option value="24h">24 hours</option>
+                    <option value="3d">3 days</option>
+                  </select>
+                </label>
               </div>
               <button type="submit" class="solid-button form-submit">Publish Alert</button>
             </form>
@@ -712,17 +729,40 @@
                 <div>
                   <strong>{{ alert.title }}</strong>
                   <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+                  <span>Expires: {{ alert.expires_at or 'End of day cleanup' }}</span>
                   <p>{{ alert.message }}</p>
                 </div>
                 <form method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="action" value="clear_service_alert">
                   <input type="hidden" name="alert_id" value="{{ alert.id }}">
                   <input type="hidden" name="redirect_tab" value="commuter">
-                  <button type="submit" class="mini-button">Clear</button>
+                  <button type="submit" class="mini-button">Delete</button>
                 </form>
               </article>
               {% else %}
               <p class="section-copy">No active alerts.</p>
+              {% endfor %}
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <h3>{{ admin_icon('audit') }}Alert Archive</h3>
+              <span>Expired and completed service alerts</span>
+            </div>
+            <div class="alert-admin-list">
+              {% for alert in overview.archived_service_alerts %}
+              <article class="alert-admin-item severity-{{ alert.severity }}">
+                <div>
+                  <strong>{{ alert.title }}</strong>
+                  <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} Â· {{ alert.stop_name }}{% endif %}</span>
+                  <span>Archived: {{ alert.archived_at }}</span>
+                  <p>{{ alert.message }}</p>
+                </div>
+              </article>
+              {% else %}
+              <p class="section-copy">No archived alerts yet.</p>
               {% endfor %}
             </div>
           </article>
@@ -871,6 +911,7 @@
               <span>Add a new staff account for the system</span>
             </div>
             <form method="POST" class="stack-form">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="create_profile">
               <input type="hidden" name="redirect_tab" value="profiles">
               <div class="form-grid">
@@ -908,30 +949,57 @@
           <article class="panel">
             <div class="panel-head">
               <h3>{{ admin_icon('user') }}Existing Profiles</h3>
-              <span>Current staff accounts in the system</span>
+              <span>Edit staff account details or remove inactive accounts</span>
             </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Username</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for user in overview.user_rows %}
-                <tr>
-                  <td>{{ user.full_name }}</td>
-                  <td>{{ user.username }}</td>
-                  <td>{{ user.email }}</td>
-                  <td>{{ user.role }}</td>
-                  <td>{{ user.created_at }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+            <div class="profile-edit-list">
+              {% for user in overview.user_rows %}
+              <article class="profile-edit-card">
+                <form method="POST" class="profile-edit-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="update_profile">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input type="hidden" name="redirect_tab" value="profiles">
+                  <label>
+                    <span>Full Name</span>
+                    <input type="text" name="full_name" value="{{ user.full_name }}" required>
+                  </label>
+                  <label>
+                    <span>Username</span>
+                    <input type="text" name="username" value="{{ user.username }}" required>
+                  </label>
+                  <label>
+                    <span>Email</span>
+                    <input type="email" name="email" value="{{ user.email }}" required>
+                  </label>
+                  <label>
+                    <span>Role</span>
+                    <select name="role">
+                      <option value="driver" {% if user.role == 'driver' %}selected{% endif %}>Driver</option>
+                      <option value="conductor" {% if user.role == 'conductor' %}selected{% endif %}>Conductor</option>
+                      <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>New Password</span>
+                    <input type="text" name="password" placeholder="Leave blank to keep current">
+                  </label>
+                  <div class="profile-edit-actions">
+                    <span>Created {{ user.created_at }}</span>
+                    <button type="submit" class="mini-button">Save Edit</button>
+                  </div>
+                </form>
+                <form method="POST" class="profile-delete-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="delete_profile">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input type="hidden" name="redirect_tab" value="profiles">
+                  <button type="submit" class="mini-button danger-button" data-confirm="Delete this profile?">Delete</button>
+                </form>
+              </article>
+              {% else %}
+              <p class="section-copy">No profiles are registered yet.</p>
+              {% endfor %}
+            </div>
           </article>
 
           {% if false %}
@@ -1246,6 +1314,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
   <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}"></script>
