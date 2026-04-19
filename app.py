@@ -215,9 +215,9 @@ def now():
     return datetime.now()
 
 
-# Convert a datetime value into the MySQL DATETIME string format.
+# Convert a datetime value into the database timestamp string format.
 def to_db_time(value: datetime | None):
-    """Convert a datetime value into the MySQL DATETIME string format."""
+    """Convert a datetime value into the database timestamp string format."""
     return value.strftime("%Y-%m-%d %H:%M:%S") if value else None
 
 
@@ -272,7 +272,7 @@ def parse_route_coords(coords_json):
     if isinstance(coords_json, bytes):
         coords_json = coords_json.decode("utf-8")
     try:
-        coords = json.loads(coords_json or "[]")
+        coords = coords_json if isinstance(coords_json, list) else json.loads(coords_json or "[]")
         if not isinstance(coords, list):
             return []
 
@@ -284,7 +284,7 @@ def parse_route_coords(coords_json):
                 except (TypeError, ValueError):
                     continue
         return normalized
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
         return []
 
 
@@ -2132,11 +2132,7 @@ def build_trip_audit_summary(conn, limit=50):
             SELECT
                 tr.trip_id,
                 COUNT(*) AS crowd_updates,
-                SUBSTRING_INDEX(
-                    GROUP_CONCAT(tr.stop_name ORDER BY tr.recorded_at DESC, tr.id DESC SEPARATOR '||'),
-                    '||',
-                    1
-                ) AS latest_stop
+                (ARRAY_AGG(tr.stop_name ORDER BY tr.recorded_at DESC, tr.id DESC))[1] AS latest_stop
             FROM trip_records tr
             GROUP BY tr.trip_id
         ) rec ON rec.trip_id = t.id
@@ -2585,7 +2581,7 @@ def build_admin_overview(conn):
             SELECT DATE(recorded_at) AS day,
                    COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
             FROM trip_transactions
-            WHERE DATE(recorded_at) >= DATE_SUB(%s, INTERVAL 6 DAY)
+            WHERE DATE(recorded_at) >= (%s::date - INTERVAL '6 days')
             GROUP BY DATE(recorded_at)
             ORDER BY DATE(recorded_at)
             """,
@@ -2598,12 +2594,12 @@ def build_admin_overview(conn):
         dict(row)
         for row in conn.execute(
             """
-            SELECT CONCAT(LPAD(HOUR(recorded_at), 2, '0'), ':00') AS hour_label,
+            SELECT TO_CHAR(recorded_at, 'HH24:00') AS hour_label,
                    COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
             FROM trip_transactions
             WHERE DATE(recorded_at) = ?
-            GROUP BY HOUR(recorded_at)
-            ORDER BY HOUR(recorded_at)
+            GROUP BY EXTRACT(HOUR FROM recorded_at), TO_CHAR(recorded_at, 'HH24:00')
+            ORDER BY EXTRACT(HOUR FROM recorded_at)
             """,
             (today,),
         ).fetchall()
@@ -2620,7 +2616,7 @@ def build_admin_overview(conn):
             COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'senior' THEN quantity ELSE 0 END), 0) AS senior,
             COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'regular' THEN quantity ELSE 0 END), 0) AS regular
         FROM trip_transactions
-        WHERE DATE(recorded_at) >= DATE_SUB(%s, INTERVAL 6 DAY)
+        WHERE DATE(recorded_at) >= (%s::date - INTERVAL '6 days')
         """,
         (today,),
     ).fetchone()
@@ -3046,7 +3042,7 @@ def sync_default_routes(conn):
                 """,
                 (route_name, start_point, end_point, distance_km, expected_duration_minutes, minimum_fare, discounted_fare, display_order, coords_json),
             )
-    placeholders = ",".join(["%s"] * len(default_names))
+    placeholders = ",".join(["?"] * len(default_names))
     conn.execute(
         f"UPDATE routes SET is_published = CASE WHEN route_name IN ({placeholders}) THEN 1 ELSE 0 END",
         tuple(default_names),
@@ -3432,6 +3428,7 @@ def admin_dashboard():
                         """
                         INSERT INTO buses (plate_number, capacity, status, route_color, notes)
                         VALUES (?, ?, ?, ?, ?)
+                        RETURNING id
                         """,
                         (plate_number, capacity, status, "#1d4ed8", notes),
                     )
@@ -3843,6 +3840,7 @@ def start_trip():
             started_at, scheduled_end, occupancy, peak_occupancy, notes
         )
         VALUES (?, ?, ?, 'active', ?, ?, 0, 0, ?)
+        RETURNING id
         """,
         (
             session["user_id"],
@@ -4057,9 +4055,13 @@ def conductor():
                     """
                     UPDATE trip_transactions
                     SET occupancy_after = ?
-                    WHERE trip_id = ? AND recorded_at = ? AND conductor_id = ? AND destination_stop = ?
-                    ORDER BY id DESC
-                    LIMIT 1
+                    WHERE id = (
+                        SELECT id
+                        FROM trip_transactions
+                        WHERE trip_id = ? AND recorded_at = ? AND conductor_id = ? AND destination_stop = ?
+                        ORDER BY id DESC
+                        LIMIT 1
+                    )
                     """,
                     (total, active_trip["id"], recorded_at, conductor_id, destination_stop),
                 )

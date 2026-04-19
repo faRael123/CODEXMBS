@@ -1,36 +1,35 @@
 # Deployment Notes
 
-## Required Environment
+## Render Environment
 
-Set these values on the deployment host before starting the app:
+Create a Render PostgreSQL database, then copy its internal database URL into the
+web service environment.
+
+Set these values on the Render web service:
 
 ```text
+DATABASE_URL=<Render PostgreSQL internal database URL>
 SECRET_KEY=<long random value>
-DB_HOST=<mysql host>
-DB_PORT=<mysql port>
-DB_USER=<mysql user>
-DB_PASSWORD=<mysql password>
-DB_NAME=<mysql database name>
 FLASK_ENV=production
 ```
 
-`DB_NAME` may only contain letters, numbers, and underscores.
-
-Railway's MySQL plugin also works with its default variable names:
+You can also use individual PostgreSQL variables instead of `DATABASE_URL`:
 
 ```text
-MYSQLHOST
-MYSQLPORT
-MYSQLUSER
-MYSQLPASSWORD
-MYSQLDATABASE
+DB_HOST=<postgres host>
+DB_PORT=5432
+DB_USER=<postgres user>
+DB_PASSWORD=<postgres password>
+DB_NAME=<postgres database name>
 ```
 
-Keep `SECRET_KEY` and `FLASK_ENV=production` set manually in Railway variables.
+`DATABASE_URL` is preferred on Render because it is copied directly from the
+PostgreSQL service and avoids mismatched host, username, or database values.
 
 ## Database Setup
 
-Run schema setup and starter data seeding as a one-time release task:
+Run schema setup and starter data seeding once after the PostgreSQL variables are
+configured:
 
 ```sh
 python -c "from app import initialize_database; initialize_database()"
@@ -43,19 +42,23 @@ username: admin
 password: admin123
 ```
 
-The password is stored as a hash after seeding or first login.
+Change this password immediately after the first successful login.
 
-## Start Command
+## Render Web Service
 
-Linux-style hosts can use the included `Procfile`:
+Use this build command:
 
 ```sh
-gunicorn app:app --bind 0.0.0.0:$PORT
+pip install -r requirements.txt
 ```
 
-Railway will provide `$PORT` at runtime and use the `Procfile` automatically.
+Use this start command:
 
-For Windows hosting, use Waitress:
+```sh
+gunicorn app:app --worker-class gthread --threads 100 --bind 0.0.0.0:10000
+```
+
+For local Windows hosting, use Waitress:
 
 ```sh
 waitress-serve --listen=0.0.0.0:8000 app:app

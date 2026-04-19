@@ -1,13 +1,16 @@
 import os
 import re
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
-import mysql.connector
-from mysql.connector import Error
+import psycopg
+from psycopg import errors
+from psycopg.rows import dict_row
 
 
 BASE_DIR = Path(__file__).resolve().parent
 SCHEMA_PATH = BASE_DIR / "schema.sql"
+
 
 def _env_first(*names, default=""):
     for name in names:
@@ -17,12 +20,21 @@ def _env_first(*names, default=""):
     return default
 
 
+def _normalize_database_url(url):
+    if not url:
+        return ""
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://") :]
+    return url
+
+
+DATABASE_URL = _normalize_database_url(_env_first("DATABASE_URL", "POSTGRES_URL", default=""))
 DB_CONFIG = {
-    "host": _env_first("DB_HOST", "MYSQLHOST", default="localhost"),
-    "user": _env_first("DB_USER", "MYSQLUSER", default="root"),
-    "password": _env_first("DB_PASSWORD", "MYSQLPASSWORD", default=""),
-    "port": int(_env_first("DB_PORT", "MYSQLPORT", default="3307")),
-    "database": _env_first("DB_NAME", "MYSQLDATABASE", default="codexmbs_db"),
+    "host": _env_first("DB_HOST", "PGHOST", default="localhost"),
+    "user": _env_first("DB_USER", "PGUSER", default="postgres"),
+    "password": _env_first("DB_PASSWORD", "PGPASSWORD", default=""),
+    "port": int(_env_first("DB_PORT", "PGPORT", default="5432")),
+    "dbname": _env_first("DB_NAME", "PGDATABASE", default="codexmbs_db"),
 }
 
 
@@ -32,13 +44,30 @@ def _safe_database_name(name):
     return name
 
 
+def _connection_kwargs():
+    if DATABASE_URL:
+        return {"conninfo": DATABASE_URL}
+    return dict(DB_CONFIG)
+
+
+def _server_connection_kwargs():
+    if DATABASE_URL:
+        parsed = urlparse(DATABASE_URL)
+        server_path = "/postgres"
+        return {"conninfo": urlunparse(parsed._replace(path=server_path, query="", fragment=""))}
+    config = dict(DB_CONFIG)
+    config["dbname"] = "postgres"
+    return config
+
+
 class CursorResult:
-    def __init__(self, cursor):
+    def __init__(self, cursor, lastrowid=None):
         self.cursor = cursor
+        self._lastrowid = lastrowid
 
     @property
     def lastrowid(self):
-        return self.cursor.lastrowid
+        return self._lastrowid
 
     def fetchone(self):
         return self.cursor.fetchone()
@@ -55,9 +84,15 @@ class DBConnection:
         return query.replace("?", "%s")
 
     def execute(self, query, params=()):
-        cursor = self.conn.cursor(dictionary=True)
-        cursor.execute(self._normalize_query(query), params)
-        return CursorResult(cursor)
+        normalized = self._normalize_query(query)
+        cursor = self.conn.cursor(row_factory=dict_row)
+        cursor.execute(normalized, tuple(params))
+        lastrowid = None
+        if cursor.description and normalized.lstrip().upper().startswith("INSERT") and "RETURNING" in normalized.upper():
+            row = cursor.fetchone()
+            if row and "id" in row:
+                lastrowid = row["id"]
+        return CursorResult(cursor, lastrowid)
 
     def executemany(self, query, seq_of_params):
         cursor = self.conn.cursor()
@@ -71,36 +106,40 @@ class DBConnection:
         self.conn.close()
 
 
+def _split_sql_statements(sql_text):
+    return [statement.strip() for statement in sql_text.split(";") if statement.strip()]
+
+
 def bootstrap_db():
-    server_conn = mysql.connector.connect(
-        host=DB_CONFIG["host"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        port=DB_CONFIG["port"],
-    )
-    server_cursor = server_conn.cursor()
-    database_name = _safe_database_name(DB_CONFIG["database"])
-    server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
-    server_conn.commit()
-    server_cursor.close()
-    server_conn.close()
-
-    db_conn = mysql.connector.connect(**DB_CONFIG)
-    db_cursor = db_conn.cursor()
-
-    sql_text = SCHEMA_PATH.read_text(encoding="utf-8")
-    statements = [statement.strip() for statement in sql_text.split(";") if statement.strip()]
-    for statement in statements:
+    if not DATABASE_URL:
+        database_name = _safe_database_name(DB_CONFIG["dbname"])
         try:
-            db_cursor.execute(statement)
-        except Error as exc:
-            if getattr(exc, "errno", None) not in {1060, 1061, 1826}:
-                raise
+            with psycopg.connect(**_server_connection_kwargs(), autocommit=True) as server_conn:
+                exists = server_conn.execute(
+                    "SELECT 1 FROM pg_database WHERE datname = %s",
+                    (database_name,),
+                ).fetchone()
+                if not exists:
+                    server_conn.execute(f'CREATE DATABASE "{database_name}"')
+        except errors.DuplicateDatabase:
+            pass
 
-    db_conn.commit()
-    db_cursor.close()
-    db_conn.close()
+    with psycopg.connect(**_connection_kwargs()) as db_conn:
+        with db_conn.cursor() as db_cursor:
+            sql_text = SCHEMA_PATH.read_text(encoding="utf-8")
+            for statement in _split_sql_statements(sql_text):
+                try:
+                    db_cursor.execute(statement)
+                except (
+                    errors.DuplicateColumn,
+                    errors.DuplicateObject,
+                    errors.DuplicateTable,
+                    errors.DuplicateAlias,
+                ):
+                    db_conn.rollback()
+                else:
+                    db_conn.commit()
 
 
 def get_db():
-    return DBConnection(mysql.connector.connect(**DB_CONFIG))
+    return DBConnection(psycopg.connect(**_connection_kwargs()))
