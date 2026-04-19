@@ -12,6 +12,7 @@
 <body
   data-conductor-live-endpoint="{{ url_for('conductor_live') }}"
   data-conductor-location-endpoint="{{ url_for('conductor_location') }}"
+  data-csrf-token="{{ csrf_token() }}"
 >
   <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <div class="conductor-shell">
@@ -37,6 +38,7 @@
         <p>The terminal saves tickets to the database, prints the receipt, and can use this device GPS if the driver tracker is unavailable.</p>
       </div>
       <form method="POST" class="setup-card attach-card">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="attach_trip">
         <label>
           <span>Active Bus</span>
@@ -87,6 +89,7 @@
           </div>
 
           <form method="POST" id="ticketMockForm" class="ticket-mock-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="record_transaction">
             <input type="hidden" name="origin_stop" id="originStopInput" value="{{ overview.current_stop }}">
             <input type="hidden" name="destination_stop" id="destinationStopInput" value="{{ overview.transaction_form.destination_stop }}">
@@ -144,11 +147,13 @@
             </section>
           </form>
           <form method="POST" class="offboard-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="offboard_due">
             <button type="submit" class="secondary">Off Board Current Stop</button>
           </form>
 
           <form method="POST" class="terminal-stop">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="stop_monitoring">
             <button type="submit" class="secondary">Stop Monitoring</button>
           </form>

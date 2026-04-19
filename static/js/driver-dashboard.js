@@ -2,12 +2,23 @@
     const activeTripData = document.getElementById('driverActiveTripData');
     const activeTrip = activeTripData ? JSON.parse(activeTripData.textContent || 'null') : null;
     const driverEndpoints = document.body.dataset;
+    const csrfHeaders = driverEndpoints.csrfToken ? { 'X-CSRFToken': driverEndpoints.csrfToken } : {};
     const startTripForm = document.getElementById('startTripForm');
     const endTripBtn = document.getElementById('endTripBtn');
     const trackingBtn = document.getElementById('trackingBtn');
     const trackingStatus = document.getElementById('trackingStatus');
     const gpsState = document.getElementById('gpsState');
+    const LOCATION_REFRESH_MS = 3000;
+    const MIN_LOCATION_SEND_MS = 2500;
+    const GEO_OPTIONS = {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 5000
+    };
     let watchId = null;
+    let locationPollId = null;
+    let locationPushInFlight = false;
+    let lastLocationSentAt = 0;
 
     if (startTripForm) {
       startTripForm.addEventListener('submit', async (event) => {
@@ -15,6 +26,7 @@
         const formData = new FormData(startTripForm);
         const response = await fetch(driverEndpoints.startTripUrl, {
           method: 'POST',
+          headers: csrfHeaders,
           body: formData
         });
         const result = await response.json();
@@ -36,7 +48,11 @@
           navigator.geolocation.clearWatch(watchId);
           watchId = null;
         }
-        const response = await fetch(driverEndpoints.endTripUrl, { method: 'POST' });
+        if (locationPollId !== null) {
+          clearInterval(locationPollId);
+          locationPollId = null;
+        }
+        const response = await fetch(driverEndpoints.endTripUrl, { method: 'POST', headers: csrfHeaders });
         const result = await response.json();
         if (result.success) {
           window.location.reload();
@@ -66,7 +82,8 @@
       const response = await fetch(driverEndpoints.driverLocationUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...csrfHeaders
         },
         body: JSON.stringify({ latitude, longitude })
       });
@@ -81,6 +98,40 @@
       if (gpsState) {
         gpsState.textContent = isError ? 'GPS needs attention' : 'GPS running';
       }
+    }
+
+    async function handlePosition(position) {
+      const now = Date.now();
+      if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {
+        return;
+      }
+
+      locationPushInFlight = true;
+      try {
+        const result = await pushLocation(position.coords.latitude, position.coords.longitude);
+        if (result.success) {
+          lastLocationSentAt = Date.now();
+          setTrackingStatus(`GPS active. Last update: ${new Date().toLocaleTimeString()}`);
+        } else {
+          setTrackingStatus(result.error || 'Location update failed.', true);
+        }
+      } catch (error) {
+        setTrackingStatus('GPS update failed. Check server connection.', true);
+      } finally {
+        locationPushInFlight = false;
+      }
+    }
+
+    function handleLocationError() {
+      setTrackingStatus('Location permission denied or unavailable.', true);
+      if (trackingBtn) {
+        trackingBtn.textContent = 'GPS Permission Required';
+        trackingBtn.disabled = true;
+      }
+    }
+
+    function requestCurrentPosition() {
+      navigator.geolocation.getCurrentPosition(handlePosition, handleLocationError, GEO_OPTIONS);
     }
 
     function startTracking() {
@@ -101,34 +152,12 @@
       }
 
       watchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          const latitude = position.coords.latitude;
-          const longitude = position.coords.longitude;
-
-          try {
-            const result = await pushLocation(latitude, longitude);
-            if (result.success) {
-              setTrackingStatus(`GPS active. Last update: ${new Date().toLocaleTimeString()}`);
-            } else {
-              setTrackingStatus(result.error || 'Location update failed.', true);
-            }
-          } catch (error) {
-            setTrackingStatus('GPS update failed. Check server connection.', true);
-          }
-        },
-        () => {
-          setTrackingStatus('Location permission denied or unavailable.', true);
-          if (trackingBtn) {
-            trackingBtn.textContent = 'GPS Permission Required';
-            trackingBtn.disabled = true;
-          }
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 10000
-        }
+        handlePosition,
+        handleLocationError,
+        GEO_OPTIONS
       );
+      requestCurrentPosition();
+      locationPollId = setInterval(requestCurrentPosition, LOCATION_REFRESH_MS);
     }
 
     if (!activeTrip && gpsState) {

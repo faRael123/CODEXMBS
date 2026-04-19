@@ -166,12 +166,16 @@ CREATE TABLE IF NOT EXISTS service_alerts (
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_by INT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NULL,
+    archived_at DATETIME NULL,
     CONSTRAINT fk_service_alerts_trip FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE SET NULL,
     CONSTRAINT fk_service_alerts_route FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE SET NULL,
     CONSTRAINT fk_service_alerts_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
 ALTER TABLE service_alerts ADD COLUMN trip_id INT NULL;
+ALTER TABLE service_alerts ADD COLUMN expires_at DATETIME NULL;
+ALTER TABLE service_alerts ADD COLUMN archived_at DATETIME NULL;
 
 CREATE INDEX idx_trips_status ON trips(status);
 CREATE INDEX idx_trip_records_trip_id ON trip_records(trip_id);

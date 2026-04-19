@@ -77,6 +77,7 @@
           <article class="stop-card">
             <strong>{{ alert.title }}</strong>
             <span>{{ alert.route_name or 'System-wide advisory' }}{% if alert.stop_name %} · {{ alert.stop_name }}{% endif %}</span>
+            <span>Visible until {{ alert.expires_at or 'today' }}</span>
             <p>{{ alert.message }}</p>
           </article>
           {% endfor %}
@@ -194,6 +195,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script type="application/json" id="publicLiveBusesData">{{ buses_json|safe }}</script>
   <script type="application/json" id="publicCommuterData">{{ commuter_data_json|safe }}</script>
   <script src="{{ url_for('static', filename='js/public-tracker-config.js') }}"></script>

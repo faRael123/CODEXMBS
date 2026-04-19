@@ -910,6 +910,69 @@ th {
   color: var(--ink);
 }
 
+.profile-edit-list {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-edit-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.62);
+}
+
+:root[data-theme="dark"] .profile-edit-card {
+  background: rgba(15, 23, 42, 0.24);
+}
+
+.profile-edit-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr)) minmax(150px, auto);
+  gap: 12px;
+  align-items: end;
+}
+
+.profile-edit-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.profile-edit-form span,
+.profile-edit-actions span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.profile-edit-form input,
+.profile-edit-form select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.profile-edit-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-delete-form {
+  display: flex;
+}
+
+.danger-button {
+  background: var(--hot);
+}
+
 .form-submit {
   border: 0;
 }
@@ -1021,6 +1084,19 @@ th {
 
   .bus-edit-form {
     grid-template-columns: 1fr;
+  }
+
+  .profile-edit-card,
+  .profile-edit-form {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-delete-form {
+    justify-content: stretch;
+  }
+
+  .profile-delete-form .mini-button {
+    width: 100%;
   }
 
   .camera-toolbar {

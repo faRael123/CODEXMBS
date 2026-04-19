@@ -2,6 +2,7 @@
     const ticketPrintContextNode = document.getElementById('conductorTicketPrintContext');
     const conductorLiveEndpoint = document.body.dataset.conductorLiveEndpoint || '';
     const conductorLocationEndpoint = document.body.dataset.conductorLocationEndpoint || '';
+    const csrfHeaders = document.body.dataset.csrfToken ? { 'X-CSRFToken': document.body.dataset.csrfToken } : {};
     const ticketPrintContext = ticketPrintContextNode ? JSON.parse(ticketPrintContextNode.textContent || '{}') : {};
     const trackingStatus = document.getElementById('trackingStatus');
     const currentStop = document.getElementById('currentStop');
@@ -20,9 +21,20 @@
     const currentOccupancy = document.getElementById('currentOccupancy');
     const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
     const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
+    const LOCATION_REFRESH_MS = 3000;
+    const LIVE_STATUS_REFRESH_MS = 3000;
+    const MIN_LOCATION_SEND_MS = 2500;
+    const GEO_OPTIONS = {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 5000
+    };
     let selectedDestinationButton = null;
     let selectedPassengerButton = null;
     let conductorWatchId = null;
+    let conductorPollId = null;
+    let conductorLocationInFlight = false;
+    let lastConductorLocationSentAt = 0;
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -308,7 +320,8 @@
       const response = await fetch(conductorLocationEndpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...csrfHeaders
         },
         body: JSON.stringify({ latitude, longitude })
       });
@@ -320,26 +333,37 @@
         return;
       }
 
-      conductorWatchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          try {
-            const result = await pushConductorLocation(position.coords.latitude, position.coords.longitude);
-            if (result.success && trackingStatus) {
-              trackingStatus.textContent = 'Live GPS active';
-            }
-          } catch (error) {
-            if (trackingStatus) trackingStatus.textContent = 'Conductor GPS standby';
-          }
-        },
-        () => {
-          if (trackingStatus) trackingStatus.textContent = 'Waiting for GPS permission';
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 10000
+      const handleConductorPosition = async (position) => {
+        const now = Date.now();
+        if (conductorLocationInFlight || now - lastConductorLocationSentAt < MIN_LOCATION_SEND_MS) {
+          return;
         }
-      );
+
+        conductorLocationInFlight = true;
+        try {
+          const result = await pushConductorLocation(position.coords.latitude, position.coords.longitude);
+          if (result.success && trackingStatus) {
+            lastConductorLocationSentAt = Date.now();
+            trackingStatus.textContent = 'Live GPS active';
+          }
+        } catch (error) {
+          if (trackingStatus) trackingStatus.textContent = 'Conductor GPS standby';
+        } finally {
+          conductorLocationInFlight = false;
+        }
+      };
+
+      const handleConductorLocationError = () => {
+        if (trackingStatus) trackingStatus.textContent = 'Waiting for GPS permission';
+      };
+
+      const requestConductorPosition = () => {
+        navigator.geolocation.getCurrentPosition(handleConductorPosition, handleConductorLocationError, GEO_OPTIONS);
+      };
+
+      conductorWatchId = navigator.geolocation.watchPosition(handleConductorPosition, handleConductorLocationError, GEO_OPTIONS);
+      requestConductorPosition();
+      conductorPollId = setInterval(requestConductorPosition, LOCATION_REFRESH_MS);
     }
 
     updateTicketSummary();
@@ -349,5 +373,5 @@
     });
     setInterval(() => refreshTripLocation().catch(() => {
       if (trackingStatus) trackingStatus.textContent = 'GPS refresh failed';
-    }), 15000);
+    }), LIVE_STATUS_REFRESH_MS);
 })();

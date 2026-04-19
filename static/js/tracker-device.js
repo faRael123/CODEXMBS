@@ -2,6 +2,7 @@
     const activeTripData = document.getElementById('trackerActiveTripData');
     const activeTrip = activeTripData ? JSON.parse(activeTripData.textContent || 'null') : null;
     const trackerEndpoints = document.body.dataset;
+    const csrfHeaders = trackerEndpoints.csrfToken ? { 'X-CSRFToken': trackerEndpoints.csrfToken } : {};
     const startTripForm = document.getElementById('startTripForm');
     const endTripBtn = document.getElementById('endTripBtn');
     const trackingBtn = document.getElementById('trackingBtn');
@@ -17,7 +18,17 @@
     const lastSentValue = document.getElementById('lastSentValue');
     const wakeLockStatus = document.getElementById('wakeLockStatus');
     const wakeLockValue = document.getElementById('wakeLockValue');
+    const LOCATION_REFRESH_MS = 3000;
+    const MIN_LOCATION_SEND_MS = 2500;
+    const GEO_OPTIONS = {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 5000
+    };
     let watchId = null;
+    let locationPollId = null;
+    let locationPushInFlight = false;
+    let lastLocationSentAt = 0;
     let wakeLock = null;
 
     function setTrackingStatus(message, isError = false) {
@@ -76,7 +87,8 @@
       const response = await fetch(trackerEndpoints.driverLocationUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...csrfHeaders
         },
         body: JSON.stringify({
           latitude: coords.latitude,
@@ -95,6 +107,36 @@
         trackingBtn.textContent = 'Enable GPS';
         trackingBtn.disabled = false;
       }
+    }
+
+    async function handlePosition(position) {
+      updateTelemetry(position);
+
+      const now = Date.now();
+      if (locationPushInFlight || now - lastLocationSentAt < MIN_LOCATION_SEND_MS) {
+        return;
+      }
+
+      locationPushInFlight = true;
+      try {
+        const result = await pushLocation(position);
+        if (result.success) {
+          lastLocationSentAt = Date.now();
+          const sentAt = new Date().toLocaleTimeString();
+          if (lastSentValue) lastSentValue.textContent = sentAt;
+          setTrackingStatus(`GPS active. Last update sent at ${sentAt}.`);
+        } else {
+          setTrackingStatus(result.error || 'Location update failed.', true);
+        }
+      } catch (error) {
+        setTrackingStatus('GPS update failed. Check server connection.', true);
+      } finally {
+        locationPushInFlight = false;
+      }
+    }
+
+    function requestCurrentPosition() {
+      navigator.geolocation.getCurrentPosition(handlePosition, handleLocationError, GEO_OPTIONS);
     }
 
     function startTracking() {
@@ -117,29 +159,12 @@
       requestWakeLock();
 
       watchId = navigator.geolocation.watchPosition(
-        async (position) => {
-          updateTelemetry(position);
-
-          try {
-            const result = await pushLocation(position);
-            if (result.success) {
-              const sentAt = new Date().toLocaleTimeString();
-              if (lastSentValue) lastSentValue.textContent = sentAt;
-              setTrackingStatus(`GPS active. Last update sent at ${sentAt}.`);
-            } else {
-              setTrackingStatus(result.error || 'Location update failed.', true);
-            }
-          } catch (error) {
-            setTrackingStatus('GPS update failed. Check server connection.', true);
-          }
-        },
+        handlePosition,
         handleLocationError,
-        {
-          enableHighAccuracy: true,
-          maximumAge: 5000,
-          timeout: 10000
-        }
+        GEO_OPTIONS
       );
+      requestCurrentPosition();
+      locationPollId = setInterval(requestCurrentPosition, LOCATION_REFRESH_MS);
     }
 
     if (startTripForm) {
@@ -148,6 +173,7 @@
         const formData = new FormData(startTripForm);
         const response = await fetch(trackerEndpoints.startTripUrl, {
           method: 'POST',
+          headers: csrfHeaders,
           body: formData
         });
         const result = await response.json();
@@ -166,10 +192,14 @@
           navigator.geolocation.clearWatch(watchId);
           watchId = null;
         }
+        if (locationPollId !== null) {
+          clearInterval(locationPollId);
+          locationPollId = null;
+        }
         if (wakeLock) {
           await wakeLock.release().catch(() => {});
         }
-        const response = await fetch(trackerEndpoints.endTripUrl, { method: 'POST' });
+        const response = await fetch(trackerEndpoints.endTripUrl, { method: 'POST', headers: csrfHeaders });
         const result = await response.json();
         if (result.success) {
           window.location.reload();

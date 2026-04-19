@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
-<body data-start-trip-url="{{ url_for('start_trip') }}" data-end-trip-url="{{ url_for('end_trip') }}" data-driver-location-url="{{ url_for('driver_location') }}">
+<body data-start-trip-url="{{ url_for('start_trip') }}" data-end-trip-url="{{ url_for('end_trip') }}" data-driver-location-url="{{ url_for('driver_location') }}" data-csrf-token="{{ csrf_token() }}">
   <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   <div class="driver-shell">
     <header class="driver-topbar">
@@ -50,6 +50,7 @@
         </div>
         {% else %}
         <form id="startTripForm" class="trip-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <label>
             <span>Select Bus</span>
             <select name="bus_id" required>

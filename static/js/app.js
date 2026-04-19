@@ -5,6 +5,8 @@ let userMarkerLayer = null;
 let applyCurrentLocationToPlanner = false;
 let hasSetInitialMapView = false;
 let shouldFocusUserLocation = false;
+const LIVE_TRACKING_REFRESH_MS = 3000;
+const COMMUTER_DATA_REFRESH_MS = 10000;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -784,15 +786,32 @@ async function refreshLiveData() {
     const response = await fetch(window.liveBusEndpoint, { cache: 'no-store' });
     if (!response.ok) return;
     const payload = await response.json();
-    buses = Array.isArray(payload.buses) ? payload.buses : [];
-    renderSummary(payload);
-    renderBusList();
-    renderMap();
-    renderRouteCards();
-    renderPlanner();
+    applyLiveBusPayload(payload);
   } catch (error) {
     console.error('Live data refresh failed', error);
   }
+}
+
+function applyLiveBusPayload(payload) {
+  buses = Array.isArray(payload.buses) ? payload.buses : [];
+  renderSummary(payload);
+  renderBusList();
+  renderMap();
+  renderRouteCards();
+  renderPlanner();
+}
+
+function connectLiveTrackingSocket() {
+  if (typeof io !== 'function') {
+    return;
+  }
+
+  const socket = io({
+    transports: ['websocket', 'polling'],
+    reconnection: true
+  });
+
+  socket.on('live_buses:update', applyLiveBusPayload);
 }
 
 if (sortSelect) {
@@ -873,5 +892,6 @@ refreshPublicPlanner();
 detectUserLocation();
 renderBusList();
 renderMap();
-setInterval(refreshLiveData, 5000);
-setInterval(refreshCommuterData, 15000);
+connectLiveTrackingSocket();
+setInterval(refreshLiveData, LIVE_TRACKING_REFRESH_MS);
+setInterval(refreshCommuterData, COMMUTER_DATA_REFRESH_MS);

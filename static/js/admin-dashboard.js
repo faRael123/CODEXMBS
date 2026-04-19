@@ -700,14 +700,31 @@
           return;
         }
         const payload = await response.json();
-        liveBuses = Array.isArray(payload.live_buses) ? payload.live_buses : [];
-        busCameras = Array.isArray(payload.bus_cameras) ? payload.bus_cameras : busCameras;
-        renderLiveBusTable(Array.isArray(payload.live_bus_rows) ? payload.live_bus_rows : []);
-        renderCameraOptions();
-        renderAdminMap();
+        applyAdminLivePayload(payload);
       } catch (error) {
         console.error('Admin live refresh failed', error);
       }
+    }
+
+    function applyAdminLivePayload(payload) {
+      liveBuses = Array.isArray(payload.live_buses) ? payload.live_buses : [];
+      busCameras = Array.isArray(payload.bus_cameras) ? payload.bus_cameras : busCameras;
+      renderLiveBusTable(Array.isArray(payload.live_bus_rows) ? payload.live_bus_rows : []);
+      renderCameraOptions();
+      renderAdminMap();
+    }
+
+    function connectAdminLiveSocket() {
+      if (typeof io !== 'function') {
+        return;
+      }
+
+      const socket = io({
+        transports: ['websocket', 'polling'],
+        reconnection: true
+      });
+
+      socket.on('admin_live:update', applyAdminLivePayload);
     }
 
     if (adminBurger && adminMenuOverlay) {
@@ -764,5 +781,6 @@
     }
 
     showSection(initialAdminTab || 'analytics');
+    connectAdminLiveSocket();
     setInterval(refreshAdminLive, 5000);
 })();

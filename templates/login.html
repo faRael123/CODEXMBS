@@ -30,6 +30,7 @@
       {% endif %}
 
       <form method="POST" class="login-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>
           <span>Username or Email</span>
           <input type="text" name="username" placeholder="Enter username or email" required>
