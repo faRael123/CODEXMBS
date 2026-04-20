@@ -1,67 +1,83 @@
-# Deployment Notes
+# Render Deployment Notes
 
-## Required Environment
+## Recommended Path
 
-Set these values on the deployment host before starting the app:
+Use the existing Render web service and PostgreSQL database:
+
+- Web service: `CODEXMBS`
+- Database: `codexmbs_db`
+
+Do not create a new service unless you want a separate staging copy. Updating the current service keeps the same public URL and database wiring.
+
+## Required Environment Variables
+
+Set these on the Render web service:
 
 ```text
-SECRET_KEY=<long random value>
-DB_HOST=<mysql host>
-DB_PORT=<mysql port>
-DB_USER=<mysql user>
-DB_PASSWORD=<mysql password>
-DB_NAME=<mysql database name>
+SECRET_KEY=<long random generated value>
 FLASK_ENV=production
+APP_ENV=production
+DATABASE_URL=<Render PostgreSQL internal database URL>
 GMAIL_USER=gajoda.system@gmail.com
-GMAIL_APP_PASSWORD=<gmail app password>
-APP_BASE_URL=<public app URL>
+GMAIL_APP_PASSWORD=<16-character Gmail app password>
+APP_BASE_URL=<your Render public web service URL>
 ```
 
-`DB_NAME` may only contain letters, numbers, and underscores.
-
-Railway's MySQL plugin also works with its default variable names:
+Optional:
 
 ```text
-MYSQLHOST
-MYSQLPORT
-MYSQLUSER
-MYSQLPASSWORD
-MYSQLDATABASE
+FLASK_DEBUG=0
 ```
 
-Keep `SECRET_KEY` and `FLASK_ENV=production` set manually in Railway variables.
+Do not set the old MySQL variables on Render. The app now uses `DATABASE_URL` for PostgreSQL.
 
-`GMAIL_APP_PASSWORD` is the 16-character Gmail app password for `GMAIL_USER`. Keep it in environment variables only. `APP_BASE_URL` must match the public deployment URL so password reset links point to the live system.
+## Render Build And Start Commands
 
-## Database Setup
+Build command:
 
-Run schema setup and starter data seeding as a one-time release task:
+```sh
+pip install -r requirements.txt
+```
+
+Pre-deploy command:
 
 ```sh
 python -c "from app import initialize_database; initialize_database()"
 ```
 
-The temporary starter admin account remains:
+Start command:
+
+```sh
+gunicorn app:app --worker-class gthread --threads 100 --bind 0.0.0.0:$PORT
+```
+
+The included `Procfile` already contains the same start command.
+
+## Database
+
+The app now uses PostgreSQL through `psycopg2-binary` and Render's `DATABASE_URL`.
+
+Run the pre-deploy command after setting `DATABASE_URL`; it creates the tables and seeds starter data. The seed process is idempotent, so it can run during deploys.
+
+## Starter Accounts
+
+Change these before treating the deployment as production:
 
 ```text
-username: admin
-password: admin123
+superadmin / superadmin123
+admin / admin123
+driver1 / driver123
+conductor1 / conductor123
 ```
 
-The password is stored as a hash after seeding or first login.
+After the first successful deploy, sign in as super admin and replace demo accounts or passwords.
 
-## Start Command
+## Password Reset Email
 
-Linux-style hosts can use the included `Procfile`:
+`APP_BASE_URL` must match the deployed Render URL, for example:
 
-```sh
-gunicorn app:app --bind 0.0.0.0:$PORT
+```text
+APP_BASE_URL=https://codexmbs.onrender.com
 ```
 
-Railway will provide `$PORT` at runtime and use the `Procfile` automatically.
-
-For Windows hosting, use Waitress:
-
-```sh
-waitress-serve --listen=0.0.0.0:8000 app:app
-```
+If `APP_BASE_URL` is wrong, password reset emails will point to the wrong host.

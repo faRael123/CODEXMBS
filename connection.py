@@ -1,13 +1,10 @@
 import os
-import re
 from pathlib import Path
-
-import mysql.connector
-from mysql.connector import Error
 
 
 BASE_DIR = Path(__file__).resolve().parent
 SCHEMA_PATH = BASE_DIR / "schema.sql"
+
 
 def _env_first(*names, default=""):
     for name in names:
@@ -17,28 +14,38 @@ def _env_first(*names, default=""):
     return default
 
 
-DB_CONFIG = {
-    "host": _env_first("DB_HOST", "MYSQLHOST", default="localhost"),
-    "user": _env_first("DB_USER", "MYSQLUSER", default="root"),
-    "password": _env_first("DB_PASSWORD", "MYSQLPASSWORD", default=""),
-    "port": int(_env_first("DB_PORT", "MYSQLPORT", default="3307")),
-    "database": _env_first("DB_NAME", "MYSQLDATABASE", default="codexmbs_db"),
-}
+def _database_url():
+    url = _env_first("DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL")
+    if url:
+        return url
+    host = _env_first("DB_HOST", "PGHOST", default="localhost")
+    port = _env_first("DB_PORT", "PGPORT", default="5432")
+    user = _env_first("DB_USER", "PGUSER", default="postgres")
+    password = _env_first("DB_PASSWORD", "PGPASSWORD", default="")
+    database = _env_first("DB_NAME", "PGDATABASE", default="codexmbs_db")
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
 
 
-def _safe_database_name(name):
-    if not re.fullmatch(r"[A-Za-z0-9_]+", name):
-        raise ValueError("DB_NAME may only contain letters, numbers, and underscores.")
-    return name
+def _postgres_modules():
+    try:
+        import psycopg2
+        from psycopg2 import errors
+        from psycopg2.extras import RealDictCursor
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "psycopg2-binary is required for PostgreSQL. Run `pip install -r requirements.txt` before starting the app."
+        ) from exc
+    return psycopg2, errors, RealDictCursor
 
 
 class CursorResult:
-    def __init__(self, cursor):
+    def __init__(self, cursor, lastrowid=None):
         self.cursor = cursor
+        self._lastrowid = lastrowid
 
     @property
     def lastrowid(self):
-        return self.cursor.lastrowid
+        return self._lastrowid
 
     def fetchone(self):
         return self.cursor.fetchone()
@@ -54,10 +61,25 @@ class DBConnection:
     def _normalize_query(self, query):
         return query.replace("?", "%s")
 
+    def _with_returning_id(self, query):
+        stripped = query.strip()
+        lowered = stripped.lower()
+        if not lowered.startswith("insert into") or " returning " in lowered:
+            return query
+        return f"{query.rstrip()} RETURNING id"
+
     def execute(self, query, params=()):
-        cursor = self.conn.cursor(dictionary=True)
-        cursor.execute(self._normalize_query(query), params)
-        return CursorResult(cursor)
+        _, _, RealDictCursor = _postgres_modules()
+        cursor = self.conn.cursor(cursor_factory=RealDictCursor)
+        normalized_query = self._normalize_query(query)
+        statement = self._with_returning_id(normalized_query)
+        cursor.execute(statement, params)
+        lastrowid = None
+        if statement is not normalized_query and cursor.description:
+            returned = cursor.fetchone()
+            if returned:
+                lastrowid = returned.get("id")
+        return CursorResult(cursor, lastrowid)
 
     def executemany(self, query, seq_of_params):
         cursor = self.conn.cursor()
@@ -67,25 +89,16 @@ class DBConnection:
     def commit(self):
         self.conn.commit()
 
+    def rollback(self):
+        self.conn.rollback()
+
     def close(self):
         self.conn.close()
 
 
 def bootstrap_db():
-    server_conn = mysql.connector.connect(
-        host=DB_CONFIG["host"],
-        user=DB_CONFIG["user"],
-        password=DB_CONFIG["password"],
-        port=DB_CONFIG["port"],
-    )
-    server_cursor = server_conn.cursor()
-    database_name = _safe_database_name(DB_CONFIG["database"])
-    server_cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
-    server_conn.commit()
-    server_cursor.close()
-    server_conn.close()
-
-    db_conn = mysql.connector.connect(**DB_CONFIG)
+    psycopg2, errors, _ = _postgres_modules()
+    db_conn = psycopg2.connect(_database_url())
     db_cursor = db_conn.cursor()
 
     sql_text = SCHEMA_PATH.read_text(encoding="utf-8")
@@ -93,14 +106,15 @@ def bootstrap_db():
     for statement in statements:
         try:
             db_cursor.execute(statement)
-        except Error as exc:
-            if getattr(exc, "errno", None) not in {1060, 1061, 1826}:
-                raise
+            db_conn.commit()
+        except (errors.DuplicateColumn, errors.DuplicateObject, errors.DuplicateTable):
+            db_conn.rollback()
+            continue
 
-    db_conn.commit()
     db_cursor.close()
     db_conn.close()
 
 
 def get_db():
-    return DBConnection(mysql.connector.connect(**DB_CONFIG))
+    psycopg2, _, _ = _postgres_modules()
+    return DBConnection(psycopg2.connect(_database_url()))
