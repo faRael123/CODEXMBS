@@ -5132,11 +5132,9 @@ def conductor():
                     """
                     UPDATE trip_transactions
                     SET occupancy_after = ?
-                    WHERE trip_id = ? AND recorded_at = ? AND conductor_id = ? AND destination_stop = ?
-                    ORDER BY id DESC
-                    LIMIT 1
+                    WHERE id = ?
                     """,
-                    (total, active_trip["id"], recorded_at, conductor_id, destination_stop),
+                    (total, ticket_id),
                 )
                 log_event(
                     conn,
@@ -5154,6 +5152,7 @@ def conductor():
                     "destinationStop": destination_stop,
                     "fareAmount": float(fare_amount or 0),
                     "occupancyAfter": int(total or 0),
+                    "capacity": int(active_trip.get("capacity") or DEFAULT_BUS_CAPACITY),
                     "plateNumber": active_trip["plate_number"],
                     "busNumber": "".join(ch for ch in str(active_trip["plate_number"]) if ch.isdigit()) or active_trip["plate_number"],
                     "routeName": active_trip["route_name"],

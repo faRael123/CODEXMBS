@@ -365,14 +365,17 @@
             <p class="mock-note">VALID BOARDING TICKET</p>
             <div class="paper-feed"></div>
           </main>
-          <script>
-            window.focus();
-            ${shouldAutoPrint ? "window.addEventListener('load', () => setTimeout(() => window.print(), 500));" : ''}
-          <\/script>
+          <script>window.focus();<\/script>
         </body>
         </html>
       `);
       ticketWindow.document.close();
+      if (shouldAutoPrint) {
+        setTimeout(() => {
+          ticketWindow.focus();
+          ticketWindow.print();
+        }, 600);
+      }
       return true;
     }
 
@@ -482,6 +485,10 @@
           }
 
           writeTicketPrintDocument(ticketWindow, payload.ticket, { autoPrint: true });
+          if (currentOccupancy && payload.ticket.occupancyAfter !== undefined) {
+            const capacity = payload.ticket.capacity || currentOccupancy.textContent.split('/')[1] || '';
+            currentOccupancy.textContent = `${payload.ticket.occupancyAfter}/${capacity}`;
+          }
           renderSidebar(payload.ticket.sidebar);
           refreshTripLocation().catch(() => {});
         } catch (error) {
