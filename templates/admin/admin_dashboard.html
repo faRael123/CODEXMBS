@@ -1160,7 +1160,10 @@
               <div class="form-grid">
                 <label>
                   <span>Password</span>
-                  <input type="text" name="password" required>
+                  <span class="password-field" data-password-field>
+                    <input type="password" name="password" required>
+                    <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+                  </span>
                 </label>
                 <label>
                   <span>Role</span>
@@ -1210,7 +1213,10 @@
                   </label>
                   <label>
                     <span>New Password</span>
-                    <input type="text" name="password" placeholder="Leave blank to keep current">
+                    <span class="password-field" data-password-field>
+                      <input type="password" name="password" placeholder="Leave blank to keep current">
+                      <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+                    </span>
                   </label>
                   <div class="profile-edit-actions">
                     <span>Created {{ user.created_at }}</span>
@@ -1546,6 +1552,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
   <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
   <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}?v=polling-socket-1"></script>
 </body>

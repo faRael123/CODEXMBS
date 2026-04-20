@@ -1078,6 +1078,40 @@ th {
   gap: 8px;
 }
 
+.password-field {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.stack-form .password-field input,
+.profile-edit-form .password-field input {
+  width: 100%;
+  padding-right: 72px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 54px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 6px 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.password-toggle:hover {
+  background: rgba(214, 0, 0, 0.08);
+  color: var(--brand);
+}
+
 .stack-form span {
   color: var(--muted);
   font-size: 0.92rem;

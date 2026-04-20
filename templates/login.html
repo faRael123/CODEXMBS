@@ -37,7 +37,10 @@
         </label>
         <label>
           <span>Password</span>
-          <input type="password" name="password" placeholder="Enter password" required>
+          <span class="password-field" data-password-field>
+            <input type="password" name="password" placeholder="Enter password" required>
+            <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+          </span>
         </label>
         <button type="submit">Login</button>
       </form>
@@ -49,5 +52,6 @@
     </section>
   </main>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
 </body>
 </html>

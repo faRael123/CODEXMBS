@@ -128,7 +128,10 @@
               <div class="form-grid">
                 <label>
                   <span>Password</span>
-                  <input type="text" name="password" required>
+                  <span class="password-field" data-password-field>
+                    <input type="password" name="password" required>
+                    <button type="button" class="password-toggle" data-password-toggle aria-label="Show password">Show</button>
+                  </span>
                 </label>
                 <label>
                   <span>Role</span>
@@ -305,6 +308,7 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/password-toggle.js') }}"></script>
   <script>
     (function () {
       const initialTab = document.body.dataset.adminInitialTab || 'profiles';

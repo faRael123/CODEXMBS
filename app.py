@@ -419,6 +419,21 @@ def to_float(value, default=0.0):
         return default
 
 
+def parse_gps_coordinates(latitude, longitude):
+    """Validate browser GPS coordinates before writing them to the trip log."""
+    try:
+        lat = float(latitude)
+        lng = float(longitude)
+    except (TypeError, ValueError):
+        return None, None, "Latitude and longitude must be valid numbers."
+
+    if not math.isfinite(lat) or not math.isfinite(lng):
+        return None, None, "Latitude and longitude must be finite numbers."
+    if lat < -90 or lat > 90 or lng < -180 or lng > 180:
+        return None, None, "GPS coordinates are outside the valid latitude/longitude range."
+    return lat, lng, None
+
+
 # Safely parse fare values into Decimal for money calculations.
 def to_decimal(value, default="0.00"):
     """Safely parse fare values into Decimal for money calculations."""
@@ -4933,6 +4948,11 @@ def driver_location():
         conn.close()
         return jsonify({"error": "Latitude and longitude are required."}), 400
 
+    latitude, longitude, coordinate_error = parse_gps_coordinates(latitude, longitude)
+    if coordinate_error:
+        conn.close()
+        return jsonify({"error": coordinate_error}), 400
+
     record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
     conn.commit()
     broadcast_live_tracking_update(conn)
@@ -4960,6 +4980,11 @@ def conductor_location():
     if latitude is None or longitude is None:
         conn.close()
         return jsonify({"error": "Latitude and longitude are required."}), 400
+
+    latitude, longitude, coordinate_error = parse_gps_coordinates(latitude, longitude)
+    if coordinate_error:
+        conn.close()
+        return jsonify({"error": coordinate_error}), 400
 
     record_trip_gps_location(conn, trip, latitude, longitude, conductor_id)
     conn.commit()

@@ -45,6 +45,22 @@
       }
     }
 
+    function locationErrorMessage(error) {
+      if (!error) {
+        return 'Location permission denied or GPS unavailable.';
+      }
+      if (error.code === error.PERMISSION_DENIED) {
+        return 'Location permission is blocked. Allow location for this site, then press Enable GPS.';
+      }
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        return 'GPS position is unavailable. Check device location settings and signal.';
+      }
+      if (error.code === error.TIMEOUT) {
+        return 'GPS timed out. Move near a window or outside, then press Enable GPS.';
+      }
+      return error.message || 'Location permission denied or GPS unavailable.';
+    }
+
     function updateTelemetry(position) {
       const coords = position.coords;
       if (latitudeValue) latitudeValue.textContent = coords.latitude.toFixed(6);
@@ -98,11 +114,27 @@
           heading: coords.heading
         })
       });
-      return response.json();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { success: false, error: payload.error || `GPS server rejected the update (${response.status}).` };
+      }
+      return payload;
     }
 
-    function handleLocationError() {
-      setTrackingStatus('Location permission denied or GPS unavailable.', true);
+    function stopTrackingWatch() {
+      if (watchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (locationPollId !== null) {
+        clearInterval(locationPollId);
+        locationPollId = null;
+      }
+    }
+
+    function handleLocationError(error) {
+      stopTrackingWatch();
+      setTrackingStatus(locationErrorMessage(error), true);
       if (trackingBtn) {
         trackingBtn.textContent = 'Enable GPS';
         trackingBtn.disabled = false;
@@ -222,6 +254,6 @@
       sessionStorage.removeItem('codexmbs_auto_track_terminal');
       startTracking();
     } else if (activeTrip) {
-      requestWakeLock();
+      startTracking();
     }
 })();

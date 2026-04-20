@@ -87,7 +87,11 @@
         },
         body: JSON.stringify({ latitude, longitude })
       });
-      return response.json();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return { success: false, error: payload.error || `GPS server rejected the update (${response.status}).` };
+      }
+      return payload;
     }
 
     function setTrackingStatus(message, isError = false) {
@@ -98,6 +102,22 @@
       if (gpsState) {
         gpsState.textContent = isError ? 'GPS needs attention' : 'GPS running';
       }
+    }
+
+    function locationErrorMessage(error) {
+      if (!error) {
+        return 'Location permission denied or unavailable.';
+      }
+      if (error.code === error.PERMISSION_DENIED) {
+        return 'Location permission is blocked. Allow location for this site, then retry GPS.';
+      }
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        return 'GPS position is unavailable. Check device location settings and signal.';
+      }
+      if (error.code === error.TIMEOUT) {
+        return 'GPS timed out. Move near a window or outside, then retry GPS.';
+      }
+      return error.message || 'Location permission denied or unavailable.';
     }
 
     async function handlePosition(position) {
@@ -122,11 +142,23 @@
       }
     }
 
-    function handleLocationError() {
-      setTrackingStatus('Location permission denied or unavailable.', true);
+    function stopTrackingWatch() {
+      if (watchId !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      if (locationPollId !== null) {
+        clearInterval(locationPollId);
+        locationPollId = null;
+      }
+    }
+
+    function handleLocationError(error) {
+      stopTrackingWatch();
+      setTrackingStatus(locationErrorMessage(error), true);
       if (trackingBtn) {
-        trackingBtn.textContent = 'GPS Permission Required';
-        trackingBtn.disabled = true;
+        trackingBtn.textContent = 'Retry GPS';
+        trackingBtn.disabled = false;
       }
     }
 
@@ -167,5 +199,9 @@
     if (activeTrip) {
       sessionStorage.removeItem('codexmbs_auto_track');
       startTracking();
+    }
+
+    if (trackingBtn) {
+      trackingBtn.addEventListener('click', startTracking);
     }
 })();
