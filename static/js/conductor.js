@@ -1,6 +1,7 @@
 (function () {
     const ticketPrintContextNode = document.getElementById('conductorTicketPrintContext');
     const conductorLiveEndpoint = document.body.dataset.conductorLiveEndpoint || '';
+    const conductorPanelsEndpoint = document.body.dataset.conductorPanelsEndpoint || '';
     const conductorLocationEndpoint = document.body.dataset.conductorLocationEndpoint || '';
     const csrfHeaders = document.body.dataset.csrfToken ? { 'X-CSRFToken': document.body.dataset.csrfToken } : {};
     const ticketPrintContext = ticketPrintContextNode ? JSON.parse(ticketPrintContextNode.textContent || '{}') : {};
@@ -16,13 +17,19 @@
     const summaryPassengerType = document.getElementById('summaryPassengerType');
     const summaryFare = document.getElementById('summaryFare');
     const ticketMockForm = document.getElementById('ticketMockForm');
+    const offboardForm = document.querySelector('.offboard-form');
     const saveMockButton = document.getElementById('saveMockButton');
     const previewMockButton = document.getElementById('previewMockButton');
     const currentOccupancy = document.getElementById('currentOccupancy');
+    const todayBoarded = document.getElementById('todayBoarded');
+    const todayTransactions = document.getElementById('todayTransactions');
+    const destinationManifestList = document.getElementById('destinationManifestList');
+    const recentTicketList = document.getElementById('recentTicketList');
     const destinationButtons = Array.from(document.querySelectorAll('.destination-chip'));
     const passengerButtons = Array.from(document.querySelectorAll('.passenger-chip'));
     const LOCATION_REFRESH_MS = 3000;
     const LIVE_STATUS_REFRESH_MS = 3000;
+    const PANEL_REFRESH_MS = 1000;
     const MIN_LOCATION_SEND_MS = 2500;
     const GEO_OPTIONS = {
       enableHighAccuracy: true,
@@ -67,35 +74,145 @@
       if (previewMockButton) previewMockButton.disabled = !isReady;
     }
 
-    function openTicketPrintMock(options = {}) {
-      const shouldAutoPrint = options.autoPrint !== false;
+    function passengerTypeLabel(value) {
+      const normalized = String(value || '').trim();
+      return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : 'Regular';
+    }
+
+    function renderSidebar(payload) {
+      if (!payload || typeof payload !== 'object') {
+        return;
+      }
+      const sidebar = payload && typeof payload === 'object' ? payload : {};
+      const todaySummary = sidebar.today_summary || {};
+
+      if (todayBoarded && todaySummary.boarded !== undefined) {
+        todayBoarded.textContent = todaySummary.boarded;
+      }
+      if (todayTransactions && todaySummary.transactions !== undefined) {
+        todayTransactions.textContent = todaySummary.transactions;
+      }
+
+      if (destinationManifestList) {
+        const manifest = Array.isArray(sidebar.destination_manifest) ? sidebar.destination_manifest : [];
+        destinationManifestList.innerHTML = manifest.length
+          ? manifest.map((item) => `
+              <article>
+                <strong>${escapeHtml(item.name)}</strong>
+                <span>${escapeHtml(item.count)} onboard</span>
+              </article>
+            `).join('')
+          : '<p class="muted">No saved passengers are pending for the downstream stops yet.</p>';
+      }
+
+      if (recentTicketList) {
+        const transactions = Array.isArray(sidebar.recent_transactions) ? sidebar.recent_transactions : [];
+        recentTicketList.innerHTML = transactions.length
+          ? transactions.map((row) => `
+              <article>
+                <strong>${escapeHtml(row.origin_stop || row.stop_name || 'Origin')} to ${escapeHtml(row.destination_stop || 'Open destination')}</strong>
+                <span>${escapeHtml(row.recorded_at || '')}</span>
+                <p>${escapeHtml(passengerTypeLabel(row.passenger_type))} passenger &middot; PHP ${Math.round(Number(row.fare_amount || 0))}</p>
+              </article>
+            `).join('')
+          : '<p class="muted">No saved tickets yet.</p>';
+      }
+    }
+
+    function formatTicketDate(value) {
+      const date = value ? new Date(String(value).replace(' ', 'T')) : new Date();
+      return date.toLocaleDateString('en-PH', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    }
+
+    function formatTicketTime(value) {
+      const date = value ? new Date(String(value).replace(' ', 'T')) : new Date();
+      return date.toLocaleTimeString('en-PH', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function ticketNumber(value) {
+      return String(value || Date.now()).replace(/\D+/g, '').slice(-5).padStart(5, '0');
+    }
+
+    function selectedTicketPayload() {
       const passengerType = passengerTypeInput ? passengerTypeInput.value : '';
       const destination = destinationStopInput ? destinationStopInput.value : '';
       const origin = summaryOrigin ? summaryOrigin.textContent.trim() : '';
       const fareValue = Math.round(currentFareValue() || 0);
 
       if (!passengerType || !destination) {
-        return;
+        return null;
       }
 
-      const transactionId = Date.now().toString().slice(-5);
-      const printedAt = new Date();
-      const dateLabel = printedAt.toLocaleDateString('en-PH', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      });
-      const timeLabel = printedAt.toLocaleTimeString('en-PH', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-      const routeLabel = `${ticketPrintContext.routeStart} - ${ticketPrintContext.routeEnd}`;
-      const ticketWindow = window.open('', 'gajoda_ticket_print_mock', 'width=420,height=760');
+      return {
+        id: Date.now(),
+        recordedAt: new Date().toISOString(),
+        passengerType,
+        originStop: origin,
+        destinationStop: destination,
+        fareAmount: fareValue,
+        plateNumber: ticketPrintContext.plateNumber,
+        busNumber: ticketPrintContext.busNumber,
+        routeName: ticketPrintContext.routeName,
+        routeStart: ticketPrintContext.routeStart,
+        routeEnd: ticketPrintContext.routeEnd
+      };
+    }
+
+    function openTicketPrintWindow(message) {
+      const ticketWindow = window.open('', 'gajoda_ticket_print', 'width=420,height=760');
 
       if (!ticketWindow) {
         return false;
       }
 
+      ticketWindow.document.open();
+      ticketWindow.document.write(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>Ticket Printer</title>
+          <style>
+            body {
+              margin: 0;
+              display: grid;
+              min-height: 100vh;
+              place-items: center;
+              background: #f2f2f2;
+              color: #111;
+              font-family: Arial, sans-serif;
+              text-align: center;
+            }
+            p { margin: 0; padding: 18px; }
+          </style>
+        </head>
+        <body><p>${escapeHtml(message || 'Preparing ticket...')}</p></body>
+        </html>
+      `);
+      ticketWindow.document.close();
+      return ticketWindow;
+    }
+
+    function writeTicketPrintDocument(ticketWindow, ticket, options = {}) {
+      if (!ticketWindow || !ticket) {
+        return false;
+      }
+
+      const shouldAutoPrint = options.autoPrint !== false;
+      const passengerType = ticket.passengerType || '';
+      const routeStart = ticket.routeStart || ticketPrintContext.routeStart || '';
+      const routeEnd = ticket.routeEnd || ticketPrintContext.routeEnd || '';
+      const routeLabel = `${routeStart} - ${routeEnd}`;
+      const busNumber = ticket.busNumber || ticketPrintContext.busNumber || ticket.plateNumber || ticketPrintContext.plateNumber || '';
+
+      ticketWindow.document.open();
       ticketWindow.document.write(`
         <!DOCTYPE html>
         <html lang="en">
@@ -223,7 +340,7 @@
         </head>
         <body>
           <div class="print-toolbar">
-            <span>${shouldAutoPrint ? '58mm Bluetooth thermal layout. Select the paired printer in the print dialog.' : 'Receipt preview only. Use Print when you want to test the browser print dialog.'}</span>
+            <span>${shouldAutoPrint ? '58mm thermal ticket. Select the paired printer in the print dialog.' : 'Receipt preview only. Use Print when you want to test the browser print dialog.'}</span>
             <button onclick="window.print()">Print</button>
             <button onclick="window.close()">Close</button>
           </div>
@@ -231,21 +348,21 @@
             <div class="ticket-title">${escapeHtml(ticketPrintContext.operator)}</div>
             <p class="ticket-subtitle">58MM THERMAL RECEIPT</p>
             <hr class="receipt-rule">
-            <div class="ticket-row"><span class="ticket-label">Plate No:</span><span>${escapeHtml(ticketPrintContext.plateNumber)}</span></div>
-            <div class="ticket-row"><span class="ticket-label">Bus #:</span><span>${escapeHtml(ticketPrintContext.busNumber.replace(/\D+/g, '') || ticketPrintContext.busNumber)}</span></div>
-            <div class="ticket-row"><span class="ticket-label">Ticket ID:</span><span>${escapeHtml(transactionId)}</span></div>
-            <div class="ticket-row"><span class="ticket-label">Date:</span><span>${escapeHtml(dateLabel)}</span></div>
-            <div class="ticket-row"><span class="ticket-label">Time:</span><span>${escapeHtml(timeLabel)}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Plate No:</span><span>${escapeHtml(ticket.plateNumber || ticketPrintContext.plateNumber)}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Bus #:</span><span>${escapeHtml(String(busNumber).replace(/\D+/g, '') || busNumber)}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Ticket ID:</span><span>${escapeHtml(ticketNumber(ticket.id))}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Date:</span><span>${escapeHtml(formatTicketDate(ticket.recordedAt))}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Time:</span><span>${escapeHtml(formatTicketTime(ticket.recordedAt))}</span></div>
             <hr class="receipt-rule">
             <div class="route-line">
               <strong>Route: ${escapeHtml(routeLabel)}</strong>
             </div>
-            <div class="ticket-row"><span class="ticket-label">Origin:</span><span>${escapeHtml(origin)}</span></div>
-            <div class="ticket-row"><span class="ticket-label">Destination:</span><span>${escapeHtml(destination)}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Origin:</span><span>${escapeHtml(ticket.originStop)}</span></div>
+            <div class="ticket-row"><span class="ticket-label">Destination:</span><span>${escapeHtml(ticket.destinationStop)}</span></div>
             <div class="ticket-row"><span class="ticket-label">Fare Type:</span><span>${escapeHtml(passengerType.charAt(0).toUpperCase() + passengerType.slice(1))}</span></div>
             <hr class="receipt-rule">
-            <div class="fare-total"><span>TOTAL PHP</span><strong>${escapeHtml(fareValue.toFixed(2))}</strong></div>
-            <p class="mock-note">MOCK RECEIPT - FOR PRINT LAYOUT TESTING ONLY</p>
+            <div class="fare-total"><span>TOTAL PHP</span><strong>${escapeHtml(Number(ticket.fareAmount || 0).toFixed(2))}</strong></div>
+            <p class="mock-note">VALID BOARDING TICKET</p>
             <div class="paper-feed"></div>
           </main>
           <script>
@@ -257,6 +374,64 @@
       `);
       ticketWindow.document.close();
       return true;
+    }
+
+    function openTicketPrintMock(options = {}) {
+      const ticket = selectedTicketPayload();
+      const ticketWindow = openTicketPrintWindow('Preparing ticket preview...');
+
+      if (!ticket || !ticketWindow) {
+        return false;
+      }
+
+      return writeTicketPrintDocument(ticketWindow, ticket, options);
+    }
+
+    function showTicketPrintError(ticketWindow, message) {
+      if (!ticketWindow) {
+        alert(message);
+        return;
+      }
+      ticketWindow.document.open();
+      ticketWindow.document.write(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>Ticket Not Printed</title>
+          <style>
+            body {
+              margin: 0;
+              display: grid;
+              min-height: 100vh;
+              place-items: center;
+              background: #fff;
+              color: #111;
+              font-family: Arial, sans-serif;
+              text-align: center;
+            }
+            main { max-width: 320px; padding: 20px; }
+            button {
+              border: 0;
+              border-radius: 8px;
+              padding: 9px 12px;
+              background: #d60000;
+              color: #fff;
+              font-weight: 700;
+              cursor: pointer;
+            }
+          </style>
+        </head>
+        <body>
+          <main>
+            <h1>Ticket not printed</h1>
+            <p>${escapeHtml(message)}</p>
+            <button onclick="window.close()">Close</button>
+          </main>
+        </body>
+        </html>
+      `);
+      ticketWindow.document.close();
     }
 
     destinationButtons.forEach((button) => {
@@ -280,8 +455,43 @@
     });
 
     if (ticketMockForm) {
-      ticketMockForm.addEventListener('submit', () => {
-        openTicketPrintMock();
+      ticketMockForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const ticketWindow = openTicketPrintWindow('Saving ticket before printing...');
+        const originalButtonText = saveMockButton ? saveMockButton.textContent : '';
+
+        if (saveMockButton) {
+          saveMockButton.disabled = true;
+          saveMockButton.textContent = 'Saving...';
+        }
+
+        try {
+          const response = await fetch(window.location.href, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: new FormData(ticketMockForm)
+          });
+          const payload = await response.json().catch(() => ({}));
+
+          if (!response.ok || !payload.success || !payload.ticket) {
+            throw new Error(payload.error || 'Ticket was not saved.');
+          }
+
+          writeTicketPrintDocument(ticketWindow, payload.ticket, { autoPrint: true });
+          renderSidebar(payload.ticket.sidebar);
+          refreshTripLocation().catch(() => {});
+        } catch (error) {
+          showTicketPrintError(ticketWindow, error.message || 'Unable to print ticket.');
+        } finally {
+          if (saveMockButton) {
+            saveMockButton.textContent = originalButtonText || 'Print Ticket';
+          }
+          updateTicketSummary();
+        }
       });
     }
 
@@ -291,26 +501,88 @@
       });
     }
 
+    if (offboardForm) {
+      offboardForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const submitButton = offboardForm.querySelector('button[type="submit"]');
+        const originalButtonText = submitButton ? submitButton.textContent : '';
+
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.textContent = 'Updating...';
+        }
+
+        try {
+          const response = await fetch(window.location.href, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: new FormData(offboardForm)
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.success) {
+            throw new Error(payload.error || 'Unable to offboard passengers.');
+          }
+          if (payload.live) {
+            applyLivePayload(payload.live);
+          }
+          refreshTripLocation().catch(() => {});
+        } catch (error) {
+          if (trackingStatus) trackingStatus.textContent = error.message || 'Offboard update failed';
+        } finally {
+          if (submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = originalButtonText || 'Off Board Current Stop';
+          }
+        }
+      });
+    }
+
+    function applyLivePayload(payload, options = {}) {
+      const shouldUpdateTrackingStatus = options.updateTrackingStatus !== false;
+      const shouldUpdateGpsFields = options.updateGpsFields !== false;
+      if (!payload.active) {
+        if (trackingStatus && shouldUpdateTrackingStatus) trackingStatus.textContent = 'No active trip';
+        return;
+      }
+      if (trackingStatus && shouldUpdateTrackingStatus) {
+        trackingStatus.textContent = payload.tracking ? 'Live GPS active' : 'Waiting for GPS';
+      }
+      const stopLabel = payload.stop_name || 'On route';
+      if (currentStop) currentStop.textContent = stopLabel;
+      if (currentCoords) currentCoords.textContent = stopLabel;
+      if (summaryOrigin) summaryOrigin.textContent = stopLabel;
+      if (originStopInput) originStopInput.value = stopLabel;
+      if (lastUpdate && shouldUpdateGpsFields) {
+        lastUpdate.textContent = payload.recorded_at || 'No live update yet';
+      }
+      if (currentOccupancy && payload.occupancy !== undefined && payload.capacity !== undefined) {
+        currentOccupancy.textContent = `${payload.occupancy}/${payload.capacity}`;
+      }
+      renderSidebar(payload.sidebar);
+    }
+
     async function refreshTripLocation() {
       const response = await fetch(conductorLiveEndpoint, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Failed to load trip location');
       }
       const payload = await response.json();
-      if (!payload.active) {
-        if (trackingStatus) trackingStatus.textContent = 'No active trip';
+      applyLivePayload(payload, { updateTrackingStatus: true, updateGpsFields: true });
+    }
+
+    async function refreshConductorPanels() {
+      if (!conductorPanelsEndpoint) {
         return;
       }
-      if (trackingStatus) trackingStatus.textContent = payload.tracking ? 'Live GPS active' : 'Waiting for GPS';
-      const stopLabel = payload.stop_name || 'On route';
-      if (currentStop) currentStop.textContent = stopLabel;
-      if (currentCoords) currentCoords.textContent = stopLabel;
-      if (summaryOrigin) summaryOrigin.textContent = stopLabel;
-      if (originStopInput) originStopInput.value = stopLabel;
-      if (lastUpdate) lastUpdate.textContent = payload.recorded_at || 'No live update yet';
-      if (currentOccupancy && payload.occupancy !== undefined && payload.capacity !== undefined) {
-        currentOccupancy.textContent = `${payload.occupancy}/${payload.capacity}`;
+      const response = await fetch(conductorPanelsEndpoint, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error('Failed to load conductor panels');
       }
+      const payload = await response.json();
+      applyLivePayload(payload, { updateTrackingStatus: false, updateGpsFields: false });
     }
 
     async function pushConductorLocation(latitude, longitude) {
@@ -371,7 +643,9 @@
     refreshTripLocation().catch(() => {
       if (trackingStatus) trackingStatus.textContent = 'Waiting for GPS';
     });
+    refreshConductorPanels().catch(() => {});
     setInterval(() => refreshTripLocation().catch(() => {
       if (trackingStatus) trackingStatus.textContent = 'GPS refresh failed';
     }), LIVE_STATUS_REFRESH_MS);
+    setInterval(() => refreshConductorPanels().catch(() => {}), PANEL_REFRESH_MS);
 })();

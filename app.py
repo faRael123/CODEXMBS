@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import math
 import os
 import secrets
+import smtplib
+import ssl
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from email.message import EmailMessage
 from functools import wraps
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -42,6 +46,7 @@ socketio = SocketIO(app, async_mode="threading")
 
 PROTECTED_PATH_PREFIXES = (
     "/admin",
+    "/super-admin",
     "/dashboard",
     "/tracker-device",
     "/start_trip",
@@ -55,6 +60,10 @@ PROTECTED_PATH_PREFIXES = (
 CSRF_SESSION_KEY = "_csrf_token"
 LIVE_TRACKING_ROOM = "live_tracking"
 ADMIN_LIVE_ROOM = "admin_live"
+PASSWORD_RESET_NOTIFICATION_TYPE = "password_reset"
+PASSWORD_RESET_LOG_ACTION = "Password Reset Requested"
+PASSWORD_RESET_TOKEN_MINUTES = 30
+ADMIN_OPERATION_NOTIFICATION_TYPES = {"trip_started", "trip_ended", "high_crowd", "bus_full"}
 
 DEFAULT_BUS_CAPACITY = 30
 STOP_PASS_RADIUS_KM = 0.85
@@ -229,6 +238,27 @@ def from_db_time(value):
     if isinstance(value, datetime):
         return value
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+
+
+def parse_iso_date(value):
+    """Parse a YYYY-MM-DD date string or return None."""
+    try:
+        return datetime.strptime(str(value or "").strip(), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_report_date_range(start_value=None, end_value=None):
+    """Normalize optional report date filters into ordered ISO date strings."""
+    start_date = parse_iso_date(start_value)
+    end_date = parse_iso_date(end_value)
+    if start_date and end_date and start_date > end_date:
+        start_date, end_date = end_date, start_date
+    return {
+        "start": start_date.isoformat() if start_date else "",
+        "end": end_date.isoformat() if end_date else "",
+        "is_filtered": bool(start_date or end_date),
+    }
 
 
 # Classify bus occupancy as Low, Medium, or High based on capacity ratio.
@@ -590,6 +620,61 @@ def calculate_segment_fare_total(trip, passenger_type, quantity, origin_stop_nam
         trip.get("minimum_fare"),
         trip.get("discounted_fare"),
     )
+
+
+# Return an admin-configured fare matrix row for an exact trip segment.
+def get_fare_matrix_entry(conn, route_id, origin_stop_name, destination_stop_name):
+    """Return an admin-configured fare matrix row for an exact trip segment."""
+    if not route_id or not origin_stop_name or not destination_stop_name:
+        return None
+    return conn.execute(
+        """
+        SELECT id, route_id, origin_stop, destination_stop, regular_fare, discounted_fare
+        FROM fare_matrix
+        WHERE route_id = ?
+          AND origin_stop = ?
+          AND destination_stop = ?
+        LIMIT 1
+        """,
+        (route_id, origin_stop_name, destination_stop_name),
+    ).fetchone()
+
+
+# Convert a fare matrix row into the passenger-type fare table used by the conductor UI.
+def build_matrix_fare_table(matrix_row):
+    """Convert a fare matrix row into a passenger-type fare table."""
+    regular = float(round_peso(matrix_row["regular_fare"]))
+    discounted = float(round_peso(matrix_row["discounted_fare"]))
+    fare_table = {"regular": regular}
+    for passenger_type in DISCOUNTED_PASSENGER_TYPES:
+        fare_table[passenger_type] = discounted
+    return fare_table
+
+
+# Build the fare guide for a trip segment, preferring the admin fare matrix when present.
+def build_segment_fare_table(conn, trip, origin_stop_name, destination_stop_name):
+    """Build the fare guide for a trip segment, preferring the admin fare matrix when present."""
+    matrix_row = get_fare_matrix_entry(
+        conn,
+        trip.get("route_id"),
+        origin_stop_name,
+        destination_stop_name,
+    )
+    if matrix_row:
+        return build_matrix_fare_table(matrix_row)
+    return estimate_fare_table(
+        estimate_trip_segment_distance(trip, origin_stop_name, destination_stop_name),
+        trip.get("minimum_fare"),
+        trip.get("discounted_fare"),
+    )
+
+
+# Calculate conductor ticket fare while honoring admin fare matrix overrides.
+def calculate_trip_fare_total(conn, trip, passenger_type, quantity, origin_stop_name, destination_stop_name):
+    """Calculate conductor ticket fare while honoring admin fare matrix overrides."""
+    fare_table = build_segment_fare_table(conn, trip, origin_stop_name, destination_stop_name)
+    unit_fare = round_peso(fare_table.get(passenger_type, fare_table["regular"]))
+    return float(round_peso(unit_fare * max(int(quantity or 0), 0)))
 
 
 # Group currently onboard passengers by destination for conductor monitoring.
@@ -1523,12 +1608,64 @@ def get_recent_trip_transactions(conn, trip_id, limit=8):
         SELECT recorded_at, event_type, passenger_type, quantity, stop_name, origin_stop, destination_stop, fare_amount, occupancy_after
         FROM trip_transactions
         WHERE trip_id = ?
+          AND event_type = 'board'
         ORDER BY recorded_at DESC, id DESC
         LIMIT ?
         """,
         (trip_id, limit),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# Summarize today's conductor ticket activity.
+def get_conductor_today_summary(conn, conductor_id):
+    """Summarize today's conductor ticket activity."""
+    empty_summary = {
+        "students": 0,
+        "pwd": 0,
+        "senior": 0,
+        "regular": 0,
+        "boarded": 0,
+        "dropped": 0,
+        "transactions": 0,
+    }
+    summary_row = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'student' THEN quantity ELSE 0 END), 0) AS students,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'pwd' THEN quantity ELSE 0 END), 0) AS pwd,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'senior' THEN quantity ELSE 0 END), 0) AS senior,
+            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'regular' THEN quantity ELSE 0 END), 0) AS regular,
+            COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS boarded,
+            COALESCE(SUM(CASE WHEN event_type = 'drop' THEN quantity ELSE 0 END), 0) AS dropped,
+            COUNT(*) AS transactions
+        FROM trip_transactions tt
+        JOIN trips t ON t.id = tt.trip_id
+        WHERE t.conductor_id = ?
+          AND DATE(tt.recorded_at) = DATE(?)
+        """,
+        (conductor_id, now().date().isoformat()),
+    ).fetchone()
+
+    if not summary_row:
+        return empty_summary
+    return {key: int(summary_row[key] or 0) for key in empty_summary}
+
+
+# Return sidebar data used by the live conductor terminal panels.
+def build_conductor_sidebar_payload(conn, conductor_id, trip, current_stop=None):
+    """Return sidebar data used by the live conductor terminal panels."""
+    if not trip:
+        return {
+            "destination_manifest": [],
+            "recent_transactions": [],
+            "today_summary": get_conductor_today_summary(conn, conductor_id),
+        }
+    return {
+        "destination_manifest": build_trip_destination_manifest(conn, trip, current_stop),
+        "recent_transactions": get_recent_trip_transactions(conn, trip["id"], 8),
+        "today_summary": get_conductor_today_summary(conn, conductor_id),
+    }
 
 
 # Run a short database query and return a single row.
@@ -1543,13 +1680,197 @@ def fetch_one(query, params=()):
 # Write an auditable system activity entry.
 def log_event(conn, user_id, role, action, description):
     """Write an auditable system activity entry."""
-    conn.execute(
+    cursor = conn.execute(
         """
         INSERT INTO system_logs (user_id, role, action, description, created_at)
         VALUES (?, ?, ?, ?, ?)
         """,
         (user_id, role, action, description, to_db_time(now())),
     )
+    return cursor.lastrowid
+
+
+def create_admin_notification(conn, notification_type, user_id, title, message):
+    """Create an unread notification for the admin dashboard."""
+    cursor = conn.execute(
+        """
+        INSERT INTO admin_notifications (notification_type, user_id, title, message, status, created_at)
+        VALUES (?, ?, ?, ?, 'unread', ?)
+        """,
+        (notification_type, user_id, title, message, to_db_time(now())),
+    )
+    return cursor.lastrowid
+
+
+def create_admin_notification_once(conn, notification_type, user_id, title, message, duplicate_key):
+    """Create an admin notification unless a matching message already exists."""
+    existing = conn.execute(
+        """
+        SELECT id
+        FROM admin_notifications
+        WHERE notification_type = ? AND message LIKE ?
+        LIMIT 1
+        """,
+        (notification_type, f"%{duplicate_key}%"),
+    ).fetchone()
+    if existing:
+        return existing["id"]
+    return create_admin_notification(conn, notification_type, user_id, title, message)
+
+
+def create_trip_capacity_notification(conn, trip, occupancy, actor_user_id=None):
+    """Create one high-crowd or full-bus notification per trip threshold."""
+    capacity = max(int(trip.get("capacity") or DEFAULT_BUS_CAPACITY), 1)
+    occupancy = int(occupancy or 0)
+    trip_key = f"trip #{trip['id']}"
+    if occupancy >= capacity:
+        return create_admin_notification_once(
+            conn,
+            "bus_full",
+            actor_user_id,
+            "Bus full",
+            f"{trip['plate_number']} reached full capacity on {trip['route_name']} for {trip_key}: {occupancy}/{capacity} passengers.",
+            trip_key,
+        )
+    if occupancy / capacity >= 0.9:
+        return create_admin_notification_once(
+            conn,
+            "high_crowd",
+            actor_user_id,
+            "High crowd level",
+            f"{trip['plate_number']} reached high crowd level on {trip['route_name']} for {trip_key}: {occupancy}/{capacity} passengers.",
+            trip_key,
+        )
+    return None
+
+
+def record_password_reset_request(conn, user, account_identifier):
+    """Store the admin notification and audit log for a password reset request."""
+    if user:
+        reset_message = f"{user['full_name']} ({user['email']}) requested a password reset."
+        notification_user_id = user["id"]
+        log_user_id = user["id"]
+        log_role = user["role"]
+    else:
+        reset_message = f"Password reset requested for unregistered account {account_identifier}."
+        notification_user_id = None
+        log_user_id = None
+        log_role = "system"
+
+    notification_id = create_admin_notification(
+        conn,
+        PASSWORD_RESET_NOTIFICATION_TYPE,
+        notification_user_id,
+        "Password reset request",
+        reset_message,
+    )
+    log_id = log_event(
+        conn,
+        log_user_id,
+        log_role,
+        PASSWORD_RESET_LOG_ACTION,
+        reset_message,
+    )
+    conn.commit()
+
+    notification_row = conn.execute(
+        "SELECT id FROM admin_notifications WHERE id = ?",
+        (notification_id,),
+    ).fetchone()
+    log_row = conn.execute(
+        "SELECT id FROM system_logs WHERE id = ?",
+        (log_id,),
+    ).fetchone()
+    if not notification_row or not log_row:
+        raise RuntimeError("Password reset request was not persisted.")
+
+    return reset_message
+
+
+def password_reset_token_hash(token):
+    """Return the database-safe hash for a raw reset token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def gmail_reset_configured():
+    """Return whether Gmail SMTP credentials are available."""
+    return bool(os.environ.get("GMAIL_USER") and os.environ.get("GMAIL_APP_PASSWORD"))
+
+
+def create_password_reset_token(conn, user_id):
+    """Create a one-time password reset token and store only its hash."""
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = password_reset_token_hash(raw_token)
+    created_at = now()
+    expires_at = created_at + timedelta(minutes=PASSWORD_RESET_TOKEN_MINUTES)
+    conn.execute(
+        """
+        UPDATE password_reset_tokens
+        SET used_at = ?
+        WHERE user_id = ? AND used_at IS NULL
+        """,
+        (to_db_time(created_at), user_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (user_id, token_hash, to_db_time(created_at), to_db_time(expires_at)),
+    )
+    return raw_token, expires_at
+
+
+def build_password_reset_url(token):
+    """Build the absolute password reset URL sent by email."""
+    base_url = (os.environ.get("APP_BASE_URL") or request.url_root or "").strip().rstrip("/")
+    return f"{base_url}{url_for('reset_password', token=token)}"
+
+
+def send_password_reset_email(user, reset_url, expires_at):
+    """Send a password reset link through Gmail SMTP."""
+    sender = os.environ.get("GMAIL_USER", "").strip()
+    app_password = os.environ.get("GMAIL_APP_PASSWORD", "")
+    if not sender or not app_password:
+        raise RuntimeError("Gmail SMTP credentials are not configured.")
+
+    subject = "Gajoda account password reset"
+    body = (
+        f"Hello {user['full_name']},\n\n"
+        "We received a request to reset your Gajoda account password.\n\n"
+        f"Reset your password here:\n{reset_url}\n\n"
+        f"This link expires at {to_db_time(expires_at)} and can only be used once.\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = user["email"]
+    message["Subject"] = subject
+    message.set_content(body)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=20) as smtp:
+        smtp.login(sender, app_password)
+        smtp.send_message(message)
+
+
+def get_valid_password_reset_token(conn, token):
+    """Return the unused, unexpired reset token row for a raw token."""
+    if not token:
+        return None
+    return conn.execute(
+        """
+        SELECT prt.id, prt.user_id, prt.expires_at, u.email, u.full_name, u.role
+        FROM password_reset_tokens prt
+        JOIN users u ON u.id = prt.user_id
+        WHERE prt.token_hash = ?
+          AND prt.used_at IS NULL
+          AND prt.expires_at > ?
+        LIMIT 1
+        """,
+        (password_reset_token_hash(token), to_db_time(now())),
+    ).fetchone()
 
 
 def is_password_hash(value):
@@ -1575,6 +1896,8 @@ def ensure_password_hashed(conn, user_id, stored_password):
 
 def role_home_endpoint(role_name):
     """Return the default dashboard endpoint for a user role."""
+    if role_name == "super_admin":
+        return "super_admin_dashboard"
     if role_name == "admin":
         return "admin_dashboard"
     if role_name == "driver":
@@ -2082,10 +2405,20 @@ def backfill_missing_transaction_fares(conn):
 
 
 # Build trip-level audit rows and summary totals for admin review.
-def build_trip_audit_summary(conn, limit=50):
+def build_trip_audit_summary(conn, limit=50, start_date=None, end_date=None):
     """Build trip-level audit rows and summary totals for admin review."""
+    where_clauses = []
+    params = []
+    if start_date:
+        where_clauses.append("DATE(t.started_at) >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("DATE(t.started_at) <= ?")
+        params.append(end_date)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    params.append(limit)
     rows = conn.execute(
-        """
+        f"""
         SELECT
             t.id AS trip_id,
             t.status,
@@ -2140,10 +2473,11 @@ def build_trip_audit_summary(conn, limit=50):
             FROM trip_records tr
             GROUP BY tr.trip_id
         ) rec ON rec.trip_id = t.id
+        {where_sql}
         ORDER BY t.started_at DESC, t.id DESC
         LIMIT %s
         """,
-        (limit,),
+        tuple(params),
     ).fetchall()
 
     summary_rows = []
@@ -2196,10 +2530,20 @@ def build_trip_audit_summary(conn, limit=50):
 
 
 # Build daily bus passenger and revenue rows for reporting.
-def build_daily_bus_tabulation(conn, limit=60):
+def build_daily_bus_tabulation(conn, limit=60, start_date=None, end_date=None):
     """Build daily bus passenger and revenue rows for reporting."""
+    where_clauses = []
+    params = []
+    if start_date:
+        where_clauses.append("DATE(t.started_at) >= ?")
+        params.append(start_date)
+    if end_date:
+        where_clauses.append("DATE(t.started_at) <= ?")
+        params.append(end_date)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+    params.append(limit)
     rows = conn.execute(
-        """
+        f"""
         SELECT
             t.id AS trip_id,
             DATE(t.started_at) AS service_date,
@@ -2223,11 +2567,12 @@ def build_daily_bus_tabulation(conn, limit=60):
         JOIN routes r ON r.id = t.route_id
         LEFT JOIN users driver ON driver.id = t.driver_id
         LEFT JOIN trip_transactions tt ON tt.trip_id = t.id
+        {where_sql}
         GROUP BY t.id, DATE(t.started_at), t.started_at, t.ended_at, b.plate_number, driver.full_name, r.route_name
         ORDER BY DATE(t.started_at) DESC, b.plate_number, t.started_at DESC, t.id DESC
         LIMIT %s
         """,
-        (limit,),
+        tuple(params),
     ).fetchall()
 
     tabulation_rows = []
@@ -2506,12 +2851,213 @@ def build_staff_attendance(conn, limit=25):
     return attendance_rows
 
 
+def build_admin_password_reset_alerts(conn, limit=5):
+    """Return unread password reset notifications for admin attention."""
+    rows = conn.execute(
+        """
+        SELECT
+            n.id,
+            n.created_at,
+            n.title,
+            n.message AS description,
+            n.status,
+            u.full_name,
+            u.email,
+            u.role
+        FROM admin_notifications n
+        LEFT JOIN users u ON u.id = n.user_id
+        WHERE n.notification_type = ? AND n.status = 'unread'
+        ORDER BY n.created_at DESC, n.id DESC
+        LIMIT ?
+        """,
+        (PASSWORD_RESET_NOTIFICATION_TYPE, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def build_admin_operation_notifications(conn, limit=8):
+    """Return unread internal operations notifications for admin monitoring."""
+    placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
+    rows = conn.execute(
+        f"""
+        SELECT id, notification_type, title, message AS description, status, created_at
+        FROM admin_notifications
+        WHERE notification_type IN ({placeholders}) AND status = 'unread'
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES), limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def build_super_admin_overview(conn):
+    """Build account, security, and audit data for the super admin console."""
+    user_rows = build_user_directory(conn)
+    role_counts = {"super_admin": 0, "admin": 0, "driver": 0, "conductor": 0}
+    for user in user_rows:
+        role_counts[user["role"]] = role_counts.get(user["role"], 0) + 1
+
+    recent_logs = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT sl.created_at, sl.role, sl.action, sl.description, u.full_name
+            FROM system_logs sl
+            LEFT JOIN users u ON u.id = sl.user_id
+            ORDER BY sl.created_at DESC, sl.id DESC
+            LIMIT 25
+            """
+        ).fetchall()
+    ]
+    return {
+        "user_rows": user_rows,
+        "role_counts": role_counts,
+        "total_users": len(user_rows),
+        "attendance_rows": build_staff_attendance(conn, 25),
+        "recent_logs": recent_logs,
+    }
+
+
+# Return admin fare matrix rows with route labels for display and editing.
+def build_fare_matrix_rows(conn):
+    """Return admin fare matrix rows with route labels for display and editing."""
+    return [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT fm.id,
+                   fm.route_id,
+                   r.route_name,
+                   fm.origin_stop,
+                   fm.destination_stop,
+                   fm.regular_fare,
+                   fm.discounted_fare,
+                   fm.updated_at,
+                   fm.created_at
+            FROM fare_matrix fm
+            JOIN routes r ON r.id = fm.route_id
+            ORDER BY r.display_order, r.route_name, fm.origin_stop, fm.destination_stop
+            """
+        ).fetchall()
+    ]
+
+
+# Return route and stop options used by the admin fare matrix form.
+def build_fare_matrix_options(conn):
+    """Return route and stop options used by the admin fare matrix form."""
+    route_options = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, route_name
+            FROM routes
+            WHERE is_published = 1
+            ORDER BY display_order, route_name
+            """
+        ).fetchall()
+    ]
+    stop_options = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT stop_name
+            FROM stops
+            WHERE is_active = 1
+            ORDER BY stop_name
+            """
+        ).fetchall()
+    ]
+    return route_options, stop_options
+
+
+# Build editable route fare matrix sections for the admin commuter tab.
+def build_fare_matrix_editor(conn):
+    """Build editable route fare matrix sections for the admin commuter tab."""
+    route_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT id,
+                   route_name,
+                   distance_km,
+                   expected_duration_minutes,
+                   minimum_fare,
+                   discounted_fare
+            FROM routes
+            WHERE is_published = 1
+            ORDER BY display_order, route_name
+            """
+        ).fetchall()
+    ]
+    matrix_lookup = {
+        (row["route_id"], stop_name_key(row["origin_stop"]), stop_name_key(row["destination_stop"])): dict(row)
+        for row in conn.execute(
+            """
+            SELECT id, route_id, origin_stop, destination_stop, regular_fare, discounted_fare
+            FROM fare_matrix
+            """
+        ).fetchall()
+    }
+
+    editor_routes = []
+    for route in route_rows:
+        stops = get_route_stop_details(route["route_name"])
+        segments = []
+        trip_context = {
+            "route_id": route["id"],
+            "route_name": route["route_name"],
+            "distance_km": route["distance_km"],
+            "expected_duration_minutes": route["expected_duration_minutes"],
+            "minimum_fare": route["minimum_fare"],
+            "discounted_fare": route["discounted_fare"],
+        }
+        for origin_index, origin_stop in enumerate(stops):
+            for destination_stop in stops[origin_index + 1 :]:
+                matrix_row = matrix_lookup.get(
+                    (
+                        route["id"],
+                        stop_name_key(origin_stop["name"]),
+                        stop_name_key(destination_stop["name"]),
+                    )
+                )
+                if matrix_row:
+                    fare_table = build_matrix_fare_table(matrix_row)
+                    is_saved = True
+                else:
+                    fare_table = estimate_fare_table(
+                        estimate_trip_segment_distance(trip_context, origin_stop["name"], destination_stop["name"]),
+                        route["minimum_fare"],
+                        route["discounted_fare"],
+                    )
+                    is_saved = False
+                segments.append(
+                    {
+                        "origin_stop": origin_stop["name"],
+                        "destination_stop": destination_stop["name"],
+                        "regular_fare": fare_table["regular"],
+                        "discounted_fare": fare_table["student"],
+                        "is_saved": is_saved,
+                    }
+                )
+        editor_routes.append(
+            {
+                "id": route["id"],
+                "route_name": route["route_name"],
+                "stop_count": len(stops),
+                "segments": segments,
+            }
+        )
+    return editor_routes
+
+
 # Build the full admin dashboard payload for analytics, reports, logs, and live fleet data.
-def build_admin_overview(conn):
+def build_admin_overview(conn, report_start_date=None, report_end_date=None):
     """Build the full admin dashboard payload for analytics, reports, logs, and live fleet data."""
     live_data = build_live_bus_data(conn)
     today = now().date().isoformat()
     yesterday = (now().date() - timedelta(days=1)).isoformat()
+    report_filters = resolve_report_date_range(report_start_date, report_end_date)
 
     passenger_totals_row = conn.execute(
         """
@@ -2558,6 +3104,45 @@ def build_admin_overview(conn):
             GROUP BY r.id
             ORDER BY passengers DESC, r.route_name
             """
+        ).fetchall()
+    ]
+    report_trip_join_filters = []
+    report_route_params = []
+    if report_filters["start"]:
+        report_trip_join_filters.append("DATE(t.started_at) >= ?")
+        report_route_params.append(report_filters["start"])
+    if report_filters["end"]:
+        report_trip_join_filters.append("DATE(t.started_at) <= ?")
+        report_route_params.append(report_filters["end"])
+    report_trip_join_sql = ""
+    if report_trip_join_filters:
+        report_trip_join_sql = " AND " + " AND ".join(report_trip_join_filters)
+    report_route_rows = [
+        dict(row)
+        for row in conn.execute(
+            f"""
+            SELECT r.route_name,
+                   r.id,
+                   r.is_published,
+                   r.minimum_fare,
+                   r.discounted_fare,
+                   COUNT(DISTINCT t.id) AS trip_count,
+                   COALESCE(SUM(tx.passengers), 0) AS passengers,
+                   COALESCE(ROUND(AVG(t.peak_occupancy * 100.0 / b.capacity), 1), 0) AS avg_load_percent
+            FROM routes r
+            LEFT JOIN trips t ON t.route_id = r.id{report_trip_join_sql}
+            LEFT JOIN buses b ON b.id = t.bus_id
+            LEFT JOIN (
+                SELECT trip_id,
+                       COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS passengers
+                FROM trip_transactions
+                GROUP BY trip_id
+            ) tx ON tx.trip_id = t.id
+            WHERE r.is_published = 1
+            GROUP BY r.id
+            ORDER BY passengers DESC, r.route_name
+            """,
+            tuple(report_route_params),
         ).fetchall()
     ]
 
@@ -2663,8 +3248,18 @@ def build_admin_overview(conn):
     ]
     stop_rows = build_stop_analytics(conn)
     recent_transaction_audit = get_recent_transaction_audit(conn, 20)
-    trip_audit_rows, audit_summary = build_trip_audit_summary(conn, 50)
-    daily_bus_rows = build_daily_bus_tabulation(conn, 60)
+    trip_audit_rows, audit_summary = build_trip_audit_summary(
+        conn,
+        50,
+        report_filters["start"] or None,
+        report_filters["end"] or None,
+    )
+    daily_bus_rows = build_daily_bus_tabulation(
+        conn,
+        60,
+        report_filters["start"] or None,
+        report_filters["end"] or None,
+    )
     report_bus_analytics = build_report_bus_analytics(daily_bus_rows)
     bus_report_sections = build_bus_report_sections(fleet_rows, daily_bus_rows)
     for fleet in fleet_rows:
@@ -2683,6 +3278,11 @@ def build_admin_overview(conn):
     report_bus_analytics["bus_options"] = sorted(report_bus_analytics["buses"].keys())
     service_alerts = get_active_service_alerts(conn)
     archived_service_alerts = get_archived_service_alerts(conn)
+    password_reset_alerts = build_admin_password_reset_alerts(conn)
+    operation_notifications = build_admin_operation_notifications(conn)
+    fare_matrix_rows = build_fare_matrix_rows(conn)
+    fare_route_options, fare_stop_options = build_fare_matrix_options(conn)
+    fare_matrix_editor = build_fare_matrix_editor(conn)
     user_rows = build_user_directory(conn)
 
     peak_hour_label = hourly_labels[0]
@@ -2702,6 +3302,7 @@ def build_admin_overview(conn):
         "medium_count": live_data["medium_count"],
         "high_crowd_count": live_data["high_count"],
         "route_rows": route_rows,
+        "report_route_rows": report_route_rows,
         "live_bus_rows": live_bus_rows,
         "camera_rows": camera_rows,
         "fleet_rows": fleet_rows,
@@ -2709,12 +3310,19 @@ def build_admin_overview(conn):
         "attendance_rows": attendance_rows,
         "service_alerts": service_alerts,
         "archived_service_alerts": archived_service_alerts,
+        "password_reset_alerts": password_reset_alerts,
+        "operation_notifications": operation_notifications,
+        "fare_matrix_rows": fare_matrix_rows,
+        "fare_route_options": fare_route_options,
+        "fare_stop_options": fare_stop_options,
+        "fare_matrix_editor": fare_matrix_editor,
         "stop_rows": stop_rows,
         "recent_transaction_audit": recent_transaction_audit,
         "trip_audit_rows": trip_audit_rows,
         "daily_bus_rows": daily_bus_rows,
         "bus_report_sections": bus_report_sections,
         "report_bus_analytics": report_bus_analytics,
+        "report_filters": report_filters,
         "audit_summary": audit_summary,
         "user_rows": user_rows,
         "peak_hour_label": peak_hour_label,
@@ -2750,6 +3358,8 @@ def build_admin_live_payload(conn):
         "live_buses": overview["charts"]["live_buses"],
         "bus_cameras": overview["camera_rows"],
         "high_crowd_count": overview["high_crowd_count"],
+        "password_reset_alerts": overview["password_reset_alerts"],
+        "operation_notifications": overview["operation_notifications"],
     }
 
 
@@ -2880,15 +3490,7 @@ def build_conductor_overview(conn, conductor_id):
     current_stop = "Waiting for location"
     destination_options = []
     fare_preview = 0.0
-    today_summary = {
-        "students": 0,
-        "pwd": 0,
-        "senior": 0,
-        "regular": 0,
-        "boarded": 0,
-        "dropped": 0,
-        "transactions": 0,
-    }
+    today_summary = get_conductor_today_summary(conn, conductor_id)
 
     if active_trip:
         latest_record = get_latest_trip_record(conn, active_trip["id"])
@@ -2905,11 +3507,7 @@ def build_conductor_overview(conn, conductor_id):
             destination_options.append(
                 {
                     **option,
-                    "fare_guide": estimate_fare_table(
-                        estimate_trip_segment_distance(active_trip, current_stop, option["name"]),
-                        active_trip.get("minimum_fare"),
-                        active_trip.get("discounted_fare"),
-                    ),
+                    "fare_guide": build_segment_fare_table(conn, active_trip, current_stop, option["name"]),
                 }
             )
         destination_manifest = sync_trip_occupancy_from_destinations(conn, active_trip, current_stop)
@@ -2921,34 +3519,14 @@ def build_conductor_overview(conn, conductor_id):
 
         recent_transactions = get_recent_trip_transactions(conn, active_trip["id"], 8)
 
-    summary_row = conn.execute(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'student' THEN quantity ELSE 0 END), 0) AS students,
-            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'pwd' THEN quantity ELSE 0 END), 0) AS pwd,
-            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'senior' THEN quantity ELSE 0 END), 0) AS senior,
-            COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'regular' THEN quantity ELSE 0 END), 0) AS regular,
-            COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS boarded,
-            COALESCE(SUM(CASE WHEN event_type = 'drop' THEN quantity ELSE 0 END), 0) AS dropped,
-            COUNT(*) AS transactions
-        FROM trip_transactions tt
-        JOIN trips t ON t.id = tt.trip_id
-        WHERE t.conductor_id = ?
-          AND DATE(tt.recorded_at) = DATE(?)
-        """,
-        (conductor_id, now().date().isoformat()),
-    ).fetchone()
-
-    if summary_row:
-        today_summary = {key: int(summary_row[key] or 0) for key in today_summary}
-
     occupancy = capacity_details(
         active_trip["occupancy"] if active_trip else 0,
         active_trip["capacity"] if active_trip else DEFAULT_BUS_CAPACITY,
     )
 
     if active_trip and transaction_form["destination_stop"]:
-        fare_preview = calculate_segment_fare_total(
+        fare_preview = calculate_trip_fare_total(
+            conn,
             active_trip,
             transaction_form["passenger_type"] or "regular",
             1,
@@ -3122,6 +3700,12 @@ def sync_default_stops(conn):
 def seed_demo_data():
     """Seed default users, buses, cameras, routes, stops, and service alerts."""
     conn = get_db()
+    conn.execute(
+        """
+        ALTER TABLE users
+        MODIFY role ENUM('super_admin', 'admin', 'driver', 'conductor') NOT NULL
+        """
+    )
     sync_default_routes(conn)
     sync_default_stops(conn)
     refresh_route_stop_cache(conn)
@@ -3134,6 +3718,7 @@ def seed_demo_data():
         ("Marites Mariano",),
     )
     users = [
+        ("superadmin", "superadmin@example.com", "superadmin123", "super_admin", "System Super Admin"),
         ("admin", "admin@example.com", "admin123", "admin", "Marites Mariano"),
         ("driver1", "driver1@example.com", "driver123", "driver", "Juan Dela Cruz"),
         ("driver2", "driver2@example.com", "driver123", "driver", "Rico Mendoza"),
@@ -3349,11 +3934,7 @@ def login():
             conn.commit()
             conn.close()
 
-            if user["role"] == "admin":
-                return redirect(url_for("admin_dashboard"))
-            if user["role"] == "driver":
-                return redirect(url_for("driver_dashboard"))
-            return redirect(url_for("conductor"))
+            return redirect(url_for(role_home_endpoint(user["role"])))
 
         conn.close()
         return render_template("login.html", error="Invalid login credentials.")
@@ -3362,16 +3943,228 @@ def login():
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
-# Handle a simple password reset lookup message for registered email addresses.
+# Notify admins that a staff account needs a password reset.
 def forgot_password():
-    """Handle a simple password reset lookup message for registered email addresses."""
+    """Send a password reset link when Gmail is configured, otherwise notify admins."""
     if request.method == "POST":
-        email = request.form.get("email", "").strip()
-        user = fetch_one("SELECT full_name FROM users WHERE email = ?", (email,))
-        if user:
-            return render_template("forgot_password.html", message=f"Password reset request recorded for {user['full_name']}.")
-        return render_template("forgot_password.html", error="Email not found.")
+        account_identifier = (
+            request.form.get("account_identifier", "") or request.form.get("email", "")
+        ).strip()
+
+        if not account_identifier:
+            return render_template("forgot_password.html", error="Enter your account username or email.")
+
+        conn = None
+        try:
+            conn = get_db()
+            user = conn.execute(
+                "SELECT id, username, email, full_name, role FROM users WHERE username = ? OR email = ?",
+                (account_identifier, account_identifier),
+            ).fetchone()
+            record_password_reset_request(conn, user, account_identifier)
+            if user and gmail_reset_configured():
+                token, expires_at = create_password_reset_token(conn, user["id"])
+                reset_url = build_password_reset_url(token)
+                send_password_reset_email(user, reset_url, expires_at)
+                log_event(
+                    conn,
+                    user["id"],
+                    user["role"],
+                    "Password Reset Email Sent",
+                    f"Password reset email was sent to {user['email']}.",
+                )
+                conn.commit()
+            broadcast_live_tracking_update(conn)
+        except Exception:
+            app.logger.exception("Password reset request could not be recorded.")
+            error_detail = "Email settings could not be verified. Check the Flask terminal for the Gmail SMTP error."
+            if app.config.get("TESTING") or app.debug:
+                import traceback
+                error_detail = traceback.format_exc().splitlines()[-1]
+            return render_template(
+                "forgot_password.html",
+                error=f"We could not send the reset request. {error_detail}",
+            )
+        finally:
+            if conn:
+                conn.close()
+
+        if user and gmail_reset_configured():
+            message = "If that account is registered, a password reset link has been sent to its email address."
+        elif user:
+            message = "Your request has been sent to the super administrator because Gmail email is not configured."
+        else:
+            message = "If that account is registered, reset instructions will be sent or reviewed by the super administrator."
+        return render_template("forgot_password.html", message=message)
     return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+# Let users set a new password from a valid one-time email token.
+def reset_password(token):
+    """Let users set a new password from a valid one-time email token."""
+    conn = get_db()
+    token_row = get_valid_password_reset_token(conn, token)
+
+    if not token_row:
+        conn.close()
+        return render_template(
+            "reset_password.html",
+            error="This reset link is invalid or expired. Request a new password reset link.",
+            token_valid=False,
+        )
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if len(password) < 8:
+            conn.close()
+            return render_template(
+                "reset_password.html",
+                token=token,
+                token_valid=True,
+                error="Use at least 8 characters for the new password.",
+            )
+        if password != confirm_password:
+            conn.close()
+            return render_template(
+                "reset_password.html",
+                token=token,
+                token_valid=True,
+                error="The password confirmation does not match.",
+            )
+
+        conn.execute(
+            "UPDATE users SET password = ? WHERE id = ?",
+            (generate_password_hash(password), token_row["user_id"]),
+        )
+        conn.execute(
+            "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?",
+            (to_db_time(now()), token_row["id"]),
+        )
+        log_event(
+            conn,
+            token_row["user_id"],
+            token_row["role"],
+            "Password Reset Completed",
+            f"{token_row['full_name']} reset their account password from an email link.",
+        )
+        conn.commit()
+        conn.close()
+        return render_template(
+            "reset_password.html",
+            token_valid=False,
+            message="Password updated. You can now sign in with your new password.",
+            login_url=url_for("login"),
+        )
+
+    conn.close()
+    return render_template("reset_password.html", token=token, token_valid=True)
+
+
+@app.route("/super-admin", methods=["GET", "POST"])
+@require_role("super_admin")
+# Render and process the super admin console for accounts, reset requests, and audit review.
+def super_admin_dashboard():
+    """Render and process the super admin console for account and security actions."""
+    conn = get_db()
+    active_tab = request.args.get("tab", "profiles")
+    if active_tab == "password-resets":
+        active_tab = "profiles"
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "dismiss_password_reset_notification":
+            abort(403)
+        if action == "create_profile":
+            redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
+            username = request.form.get("username", "").strip()
+            email = request.form.get("email", "").strip().lower()
+            password = request.form.get("password", "")
+            role = request.form.get("role", "").strip().lower()
+            full_name = request.form.get("full_name", "").strip()
+
+            if username and email and password and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
+                existing_user = conn.execute(
+                    "SELECT id FROM users WHERE username = ? OR email = ?",
+                    (username, email),
+                ).fetchone()
+                if not existing_user:
+                    conn.execute(
+                        """
+                        INSERT INTO users (username, email, password, role, full_name, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (username, email, generate_password_hash(password), role, full_name, to_db_time(now())),
+                    )
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "super_admin",
+                        "Profile Created",
+                        f"Created {role} profile for {full_name} ({username}).",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+        elif action == "update_profile":
+            redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
+            user_id_raw = request.form.get("user_id", "").strip()
+            username = request.form.get("username", "").strip()
+            email = request.form.get("email", "").strip().lower()
+            role = request.form.get("role", "").strip().lower()
+            full_name = request.form.get("full_name", "").strip()
+
+            if user_id_raw.isdigit() and username and email and full_name and role in {"super_admin", "admin", "driver", "conductor"}:
+                user_id = int(user_id_raw)
+                user_row = conn.execute("SELECT id, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
+                duplicate_user = conn.execute(
+                    "SELECT id FROM users WHERE (username = ? OR email = ?) AND id <> ?",
+                    (username, email, user_id),
+                ).fetchone()
+                super_admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'super_admin'").fetchone()["total"]
+                admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
+                demotes_last_super_admin = user_row and user_row["role"] == "super_admin" and role != "super_admin" and super_admin_count <= 1
+                demotes_last_admin = user_row and user_row["role"] == "admin" and role != "admin" and admin_count <= 1
+                if user_row and not duplicate_user and not demotes_last_super_admin and not demotes_last_admin:
+                    conn.execute(
+                        """
+                        UPDATE users
+                        SET full_name = ?, username = ?, email = ?, role = ?
+                        WHERE id = ?
+                        """,
+                        (full_name, username, email, role, user_id),
+                    )
+                    log_event(conn, session["user_id"], "super_admin", "Profile Updated", f"Updated profile for {full_name} ({username}).")
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+        elif action == "delete_profile":
+            redirect_tab = request.form.get("redirect_tab", "profiles").strip() or "profiles"
+            user_id_raw = request.form.get("user_id", "").strip()
+            if user_id_raw.isdigit():
+                user_id = int(user_id_raw)
+                user_row = conn.execute("SELECT id, username, full_name, role FROM users WHERE id = ?", (user_id,)).fetchone()
+                super_admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'super_admin'").fetchone()["total"]
+                admin_count = conn.execute("SELECT COUNT(*) AS total FROM users WHERE role = 'admin'").fetchone()["total"]
+                deletes_last_super_admin = user_row and user_row["role"] == "super_admin" and super_admin_count <= 1
+                deletes_last_admin = user_row and user_row["role"] == "admin" and admin_count <= 1
+                if user_row and user_id != session["user_id"] and not deletes_last_super_admin and not deletes_last_admin:
+                    conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+                    conn.execute("UPDATE trips SET driver_id = NULL WHERE driver_id = ?", (user_id,))
+                    conn.execute("UPDATE trips SET conductor_id = NULL WHERE conductor_id = ?", (user_id,))
+                    conn.execute("UPDATE trip_transactions SET conductor_id = NULL WHERE conductor_id = ?", (user_id,))
+                    conn.execute("UPDATE service_alerts SET created_by = NULL WHERE created_by = ?", (user_id,))
+                    conn.execute("UPDATE system_logs SET user_id = NULL WHERE user_id = ?", (user_id,))
+                    conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                    log_event(conn, session["user_id"], "super_admin", "Profile Deleted", f"Deleted profile for {user_row['full_name']} ({user_row['username']}).")
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("super_admin_dashboard", tab=redirect_tab))
+
+    overview = build_super_admin_overview(conn)
+    conn.close()
+    return render_template("admin/super_admin_dashboard.html", overview=overview, active_tab=active_tab)
 
 
 @app.route("/admin", methods=["GET", "POST"])
@@ -3381,9 +4174,46 @@ def admin_dashboard():
     """Render and process the admin dashboard for fleet, camera, route, alert, and user actions."""
     conn = get_db()
     active_tab = request.args.get("tab", "analytics")
+    if active_tab in {"profiles", "password-resets"}:
+        active_tab = "analytics"
 
     if request.method == "POST":
         action = request.form.get("action")
+        if action in {"create_profile", "update_profile", "delete_profile", "dismiss_password_reset_notification"}:
+            abort(403)
+        if action == "dismiss_admin_notification":
+            notification_id_raw = request.form.get("notification_id", "").strip()
+            redirect_tab = request.form.get("redirect_tab", "operations").strip() or "operations"
+            if notification_id_raw.isdigit():
+                notification_id = int(notification_id_raw)
+                placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
+                notification_row = conn.execute(
+                    f"""
+                    SELECT id, title
+                    FROM admin_notifications
+                    WHERE id = ? AND notification_type IN ({placeholders}) AND status = 'unread'
+                    """,
+                    (notification_id, *sorted(ADMIN_OPERATION_NOTIFICATION_TYPES)),
+                ).fetchone()
+                if notification_row:
+                    conn.execute(
+                        """
+                        UPDATE admin_notifications
+                        SET status = 'read', read_at = ?
+                        WHERE id = ?
+                        """,
+                        (to_db_time(now()), notification_id),
+                    )
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Admin Notification Dismissed",
+                        f"Dismissed operations notification #{notification_id}.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
         if action == "update_bus_status":
             bus_id_raw = request.form.get("bus_id", "").strip()
             next_status = request.form.get("status", "").strip().lower()
@@ -3560,6 +4390,138 @@ def admin_dashboard():
                     conn.commit()
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "save_fare_matrix_table":
+            redirect_tab = request.form.get("redirect_tab", "commuter").strip() or "commuter"
+            route_id_raw = request.form.get("route_id", "").strip()
+            if route_id_raw.isdigit():
+                route_id = int(route_id_raw)
+                route_row = conn.execute(
+                    "SELECT id, route_name FROM routes WHERE id = ? AND is_published = 1",
+                    (route_id,),
+                ).fetchone()
+                if route_row:
+                    origin_stops = request.form.getlist("origin_stop")
+                    destination_stops = request.form.getlist("destination_stop")
+                    regular_fares = request.form.getlist("regular_fare")
+                    discounted_fares = request.form.getlist("discounted_fare")
+                    saved_count = 0
+                    saved_at = to_db_time(now())
+                    for origin_stop, destination_stop, regular_value, discounted_value in zip(
+                        origin_stops,
+                        destination_stops,
+                        regular_fares,
+                        discounted_fares,
+                    ):
+                        origin_stop = " ".join(origin_stop.strip().split())
+                        destination_stop = " ".join(destination_stop.strip().split())
+                        if not is_valid_trip_segment(route_row, origin_stop, destination_stop):
+                            continue
+                        regular_fare = max(to_float(regular_value, 0.0), 1.0)
+                        discounted_fare = max(to_float(discounted_value, 0.0), 1.0)
+                        conn.execute(
+                            """
+                            INSERT INTO fare_matrix (
+                                route_id, origin_stop, destination_stop, regular_fare, discounted_fare, created_at, updated_at
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE
+                                regular_fare = VALUES(regular_fare),
+                                discounted_fare = VALUES(discounted_fare),
+                                updated_at = VALUES(updated_at)
+                            """,
+                            (
+                                route_id,
+                                origin_stop,
+                                destination_stop,
+                                regular_fare,
+                                discounted_fare,
+                                saved_at,
+                                saved_at,
+                            ),
+                        )
+                        saved_count += 1
+                    if saved_count:
+                        log_event(
+                            conn,
+                            session["user_id"],
+                            "admin",
+                            "Fare Matrix Table Saved",
+                            f"Saved {saved_count} fare matrix rows for {route_row['route_name']}.",
+                        )
+                        conn.commit()
+                        conn.close()
+                        return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "upsert_fare_matrix":
+            redirect_tab = request.form.get("redirect_tab", "commuter").strip() or "commuter"
+            route_id_raw = request.form.get("route_id", "").strip()
+            origin_stop = " ".join(request.form.get("origin_stop", "").strip().split())
+            destination_stop = " ".join(request.form.get("destination_stop", "").strip().split())
+            regular_fare = max(to_float(request.form.get("regular_fare"), 0.0), 1.0)
+            discounted_fare = max(to_float(request.form.get("discounted_fare"), 0.0), 1.0)
+            if route_id_raw.isdigit() and origin_stop and destination_stop:
+                route_id = int(route_id_raw)
+                route_row = conn.execute(
+                    "SELECT id, route_name FROM routes WHERE id = ? AND is_published = 1",
+                    (route_id,),
+                ).fetchone()
+                if route_row and is_valid_trip_segment(route_row, origin_stop, destination_stop):
+                    conn.execute(
+                        """
+                        INSERT INTO fare_matrix (
+                            route_id, origin_stop, destination_stop, regular_fare, discounted_fare, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON DUPLICATE KEY UPDATE
+                            regular_fare = VALUES(regular_fare),
+                            discounted_fare = VALUES(discounted_fare),
+                            updated_at = VALUES(updated_at)
+                        """,
+                        (
+                            route_id,
+                            origin_stop,
+                            destination_stop,
+                            regular_fare,
+                            discounted_fare,
+                            to_db_time(now()),
+                            to_db_time(now()),
+                        ),
+                    )
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Fare Matrix Updated",
+                        f"Set {route_row['route_name']} fare from {origin_stop} to {destination_stop} to regular PHP {regular_fare:.2f} and discounted PHP {discounted_fare:.2f}.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "delete_fare_matrix":
+            redirect_tab = request.form.get("redirect_tab", "commuter").strip() or "commuter"
+            fare_matrix_id_raw = request.form.get("fare_matrix_id", "").strip()
+            if fare_matrix_id_raw.isdigit():
+                fare_matrix_id = int(fare_matrix_id_raw)
+                fare_row = conn.execute(
+                    """
+                    SELECT fm.id, fm.origin_stop, fm.destination_stop, r.route_name
+                    FROM fare_matrix fm
+                    JOIN routes r ON r.id = fm.route_id
+                    WHERE fm.id = ?
+                    """,
+                    (fare_matrix_id,),
+                ).fetchone()
+                if fare_row:
+                    conn.execute("DELETE FROM fare_matrix WHERE id = ?", (fare_matrix_id,))
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Fare Matrix Deleted",
+                        f"Deleted {fare_row['route_name']} fare from {fare_row['origin_stop']} to {fare_row['destination_stop']}.",
+                    )
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
         elif action == "create_service_alert":
             redirect_tab = request.form.get("redirect_tab", "commuter").strip() or "commuter"
             title = request.form.get("title", "").strip()
@@ -3591,6 +4553,38 @@ def admin_dashboard():
                 if alert_row:
                     conn.execute("DELETE FROM service_alerts WHERE id = ?", (alert_id,))
                     log_event(conn, session["user_id"], "admin", "Service Alert Deleted", f"Service alert '{alert_row['title']}' was deleted.")
+                    conn.commit()
+                    conn.close()
+                    return redirect(url_for("admin_dashboard", tab=redirect_tab))
+        elif action == "dismiss_password_reset_notification":
+            notification_id_raw = request.form.get("notification_id", "").strip()
+            redirect_tab = request.form.get("redirect_tab", "password-resets").strip() or "password-resets"
+            if notification_id_raw.isdigit():
+                notification_id = int(notification_id_raw)
+                notification_row = conn.execute(
+                    """
+                    SELECT id, title, message
+                    FROM admin_notifications
+                    WHERE id = ? AND notification_type = ? AND status = 'unread'
+                    """,
+                    (notification_id, PASSWORD_RESET_NOTIFICATION_TYPE),
+                ).fetchone()
+                if notification_row:
+                    conn.execute(
+                        """
+                        UPDATE admin_notifications
+                        SET status = 'read', read_at = ?
+                        WHERE id = ?
+                        """,
+                        (to_db_time(now()), notification_id),
+                    )
+                    log_event(
+                        conn,
+                        session["user_id"],
+                        "admin",
+                        "Password Reset Notification Dismissed",
+                        f"Dismissed password reset notification #{notification_id}.",
+                    )
                     conn.commit()
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
@@ -3686,7 +4680,11 @@ def admin_dashboard():
                     conn.close()
                     return redirect(url_for("admin_dashboard", tab=redirect_tab))
 
-    overview = build_admin_overview(conn)
+    overview = build_admin_overview(
+        conn,
+        request.args.get("report_start"),
+        request.args.get("report_end"),
+    )
     conn.close()
     return render_template("admin/admin_dashboard.html", overview=overview, active_tab=active_tab)
 
@@ -3723,7 +4721,7 @@ def handle_socket_connect():
     conn = get_db()
     try:
         user = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user and user["role"] == "admin":
+        if user and user["role"] in {"admin", "super_admin"}:
             join_room(ADMIN_LIVE_ROOM)
     finally:
         conn.close()
@@ -3774,7 +4772,11 @@ def api_admin_bus_cameras(bus_id):
 def admin_report():
     """Download the current admin analytics report as a PDF file."""
     conn = get_db()
-    overview = build_admin_overview(conn)
+    overview = build_admin_overview(
+        conn,
+        request.args.get("report_start"),
+        request.args.get("report_end"),
+    )
     conn.close()
 
     output = build_admin_pdf_report(overview)
@@ -3853,9 +4855,17 @@ def start_trip():
             f"Started from {source_label}",
         ),
     )
-    log_event(conn, session["user_id"], "driver", "Trip Started", f"Driver started {bus_row['plate_number']} on {route_row['route_name']} from the {source_label}.")
-    conn.commit()
     trip_id = cursor.lastrowid
+    log_event(conn, session["user_id"], "driver", "Trip Started", f"Driver started {bus_row['plate_number']} on {route_row['route_name']} from the {source_label}.")
+    create_admin_notification_once(
+        conn,
+        "trip_started",
+        session["user_id"],
+        "Trip started",
+        f"{bus_row['plate_number']} started {route_row['route_name']} as trip #{trip_id} from the {source_label}.",
+        f"trip #{trip_id}",
+    )
+    conn.commit()
     sync_trip_service_alert(conn, trip_id, True)
     conn.commit()
     conn.close()
@@ -3888,6 +4898,14 @@ def end_trip():
     )
     sync_trip_service_alert(conn, trip["id"], False)
     log_event(conn, session["user_id"], "driver", "Trip Ended", f"Driver completed trip #{trip['id']} on {trip['plate_number']}.")
+    create_admin_notification_once(
+        conn,
+        "trip_ended",
+        session["user_id"],
+        "Trip ended",
+        f"{trip['plate_number']} completed trip #{trip['id']} after {duration_minutes} minute(s). Peak load: {int(trip.get('peak_occupancy') or 0)}/{int(trip.get('capacity') or DEFAULT_BUS_CAPACITY)} passengers.",
+        f"trip #{trip['id']}",
+    )
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -3955,10 +4973,17 @@ def conductor():
     """Render and process conductor trip attachment, ticketing, and monitoring actions."""
     conn = get_db()
     conductor_id = session["user_id"]
+    wants_json = (
+        request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or (request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html)
+    )
 
     if request.method == "POST":
         action = request.form.get("action")
         active_trip = get_active_trip_for_conductor(conn, conductor_id)
+        ticket_payload = None
+        ticket_error = None
+        live_payload = None
 
         if action == "attach_trip":
             trip_id = int(request.form.get("trip_id", 0))
@@ -3993,12 +5018,12 @@ def conductor():
             is_valid_destination = is_valid_trip_segment(active_trip, origin_stop, destination_stop)
 
             if passenger_type in {"student", "pwd", "senior", "regular"} and is_valid_destination:
-                fare_amount = calculate_segment_fare_total(active_trip, passenger_type, 1, origin_stop, destination_stop)
+                fare_amount = calculate_trip_fare_total(conn, active_trip, passenger_type, 1, origin_stop, destination_stop)
             else:
                 fare_amount = 0
             recorded_at = to_db_time(now())
             if passenger_type in {"student", "pwd", "senior", "regular"} and is_valid_destination:
-                conn.execute(
+                ticket_cursor = conn.execute(
                     """
                     INSERT INTO trip_transactions (
                         trip_id, conductor_id, event_type, passenger_type, quantity, fare_amount,
@@ -4022,6 +5047,7 @@ def conductor():
                         recorded_at,
                     ),
                 )
+                ticket_id = ticket_cursor.lastrowid
 
                 manifest = sync_trip_occupancy_from_destinations(conn, active_trip, origin_stop)
                 total = sum(item["count"] for item in manifest)
@@ -4070,6 +5096,24 @@ def conductor():
                     "Ticket Printed",
                     f"Trip #{active_trip['id']} boarded 1 {passenger_type} passenger from {origin_stop} to {destination_stop} for PHP {fare_amount:.0f}.",
                 )
+                create_trip_capacity_notification(conn, active_trip, total, conductor_id)
+                ticket_payload = {
+                    "id": ticket_id,
+                    "recordedAt": recorded_at,
+                    "passengerType": passenger_type,
+                    "originStop": origin_stop,
+                    "destinationStop": destination_stop,
+                    "fareAmount": float(fare_amount or 0),
+                    "occupancyAfter": int(total or 0),
+                    "plateNumber": active_trip["plate_number"],
+                    "busNumber": "".join(ch for ch in str(active_trip["plate_number"]) if ch.isdigit()) or active_trip["plate_number"],
+                    "routeName": active_trip["route_name"],
+                    "routeStart": active_trip["start_point"],
+                    "routeEnd": active_trip["end_point"],
+                    "sidebar": build_conductor_sidebar_payload(conn, conductor_id, active_trip, origin_stop),
+                }
+            else:
+                ticket_error = "Select a valid downstream destination and passenger type before printing."
 
         elif action == "offboard_due" and active_trip:
             latest_gps = get_latest_trip_gps(conn, active_trip["id"])
@@ -4089,6 +5133,14 @@ def conductor():
                 conductor_id,
                 True,
             )
+            active_trip = get_active_trip_for_conductor(conn, conductor_id) or active_trip
+            live_payload = {
+                "active": True,
+                "stop_name": current_stop or "Route stop",
+                "occupancy": int(active_trip.get("occupancy") or 0),
+                "capacity": int(active_trip.get("capacity") or DEFAULT_BUS_CAPACITY),
+                "sidebar": build_conductor_sidebar_payload(conn, conductor_id, active_trip, current_stop),
+            }
 
         elif action == "stop_monitoring" and active_trip:
             if active_trip["driver_id"]:
@@ -4106,6 +5158,15 @@ def conductor():
                 log_event(conn, conductor_id, "conductor", "Manual Trip Ended", f"Manual monitoring trip #{active_trip['id']} was closed.")
 
         conn.commit()
+        if wants_json and action == "record_transaction":
+            if ticket_payload:
+                conn.close()
+                return jsonify({"success": True, "ticket": normalize_json_value(ticket_payload)})
+            conn.close()
+            return jsonify({"success": False, "error": ticket_error or "Ticket was not saved."}), 400
+        if wants_json and action == "offboard_due":
+            conn.close()
+            return jsonify({"success": True, "live": normalize_json_value(live_payload or {})})
 
     overview = build_conductor_overview(conn, conductor_id)
     conn.commit()
@@ -4128,6 +5189,7 @@ def conductor_live():
 
     latest_gps = get_latest_trip_gps(conn, trip["id"])
     if not latest_gps:
+        sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, None)
         conn.close()
         return jsonify(
             {
@@ -4136,6 +5198,7 @@ def conductor_live():
                 "stop_name": "Waiting for GPS location",
                 "occupancy": int(trip.get("occupancy") or 0),
                 "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
+                "sidebar": normalize_json_value(sidebar_payload),
             }
         )
 
@@ -4145,6 +5208,7 @@ def conductor_live():
     current_stop = current_stop_details["name"] if current_stop_details else derive_trip_location_label(trip, lat, lng)
     auto_offboard_due_passengers(conn, trip, current_stop, lat, lng, conductor_id)
     trip = get_active_trip_for_conductor(conn, conductor_id) or trip
+    sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, current_stop)
     conn.commit()
     conn.close()
     return jsonify(
@@ -4157,7 +5221,47 @@ def conductor_live():
             "latitude": lat,
             "longitude": lng,
             "recorded_at": normalize_json_value(latest_gps["recorded_at"]),
+            "sidebar": normalize_json_value(sidebar_payload),
         }
+    )
+
+
+@app.route("/api/conductor/panels")
+@require_role("conductor")
+# Return conductor sidebar counters, manifest, and recent tickets without requiring GPS work.
+def conductor_panels():
+    """Return conductor sidebar counters, manifest, and recent tickets without requiring GPS work."""
+    conn = get_db()
+    conductor_id = session["user_id"]
+    trip = get_active_trip_for_conductor(conn, conductor_id)
+
+    if not trip:
+        conn.close()
+        return jsonify({"active": False})
+
+    latest_record = get_latest_trip_record(conn, trip["id"])
+    latest_gps = get_latest_trip_gps(conn, trip["id"])
+    current_stop_details = get_trip_current_stop_details(
+        trip,
+        latest_gps,
+        latest_record["stop_name"] if latest_record else None,
+    )
+    current_stop = current_stop_details["name"] if current_stop_details else (
+        latest_record["stop_name"] if latest_record else None
+    )
+    sidebar_payload = build_conductor_sidebar_payload(conn, conductor_id, trip, current_stop)
+    conn.commit()
+    conn.close()
+    return jsonify(
+        normalize_json_value(
+            {
+                "active": True,
+                "occupancy": int(trip.get("occupancy") or 0),
+                "capacity": int(trip.get("capacity") or DEFAULT_BUS_CAPACITY),
+                "stop_name": current_stop or "Waiting for GPS location",
+                "sidebar": sidebar_payload,
+            }
+        )
     )
 
 

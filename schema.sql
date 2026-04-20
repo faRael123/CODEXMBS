@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(80) NOT NULL UNIQUE,
     email VARCHAR(120) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
-    role ENUM('admin', 'driver', 'conductor') NOT NULL,
+    role ENUM('super_admin', 'admin', 'driver', 'conductor') NOT NULL,
     full_name VARCHAR(120) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -38,6 +38,21 @@ ALTER TABLE routes ADD COLUMN is_published TINYINT(1) NOT NULL DEFAULT 1;
 ALTER TABLE routes ADD COLUMN minimum_fare DECIMAL(10,2) NOT NULL DEFAULT 15.00;
 ALTER TABLE routes ADD COLUMN discounted_fare DECIMAL(10,2) NOT NULL DEFAULT 12.00;
 ALTER TABLE routes ADD COLUMN display_order INT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS fare_matrix (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    route_id INT NOT NULL,
+    origin_stop VARCHAR(150) NOT NULL,
+    destination_stop VARCHAR(150) NOT NULL,
+    regular_fare DECIMAL(10,2) NOT NULL,
+    discounted_fare DECIMAL(10,2) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL,
+    CONSTRAINT fk_fare_matrix_route FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE,
+    CONSTRAINT uq_fare_matrix_segment UNIQUE (route_id, origin_stop, destination_stop)
+);
+
+CREATE INDEX idx_fare_matrix_route_segment ON fare_matrix(route_id, origin_stop, destination_stop);
 
 CREATE TABLE IF NOT EXISTS stops (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -155,6 +170,28 @@ CREATE TABLE IF NOT EXISTS system_logs (
     CONSTRAINT fk_system_logs_user FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS admin_notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    notification_type VARCHAR(80) NOT NULL,
+    user_id INT NULL,
+    title VARCHAR(180) NOT NULL,
+    message TEXT NOT NULL,
+    status VARCHAR(40) NOT NULL DEFAULT 'unread',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME NULL,
+    CONSTRAINT fk_admin_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME NULL,
+    CONSTRAINT fk_password_reset_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS service_alerts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     trip_id INT NULL,
@@ -186,3 +223,6 @@ CREATE INDEX idx_gps_logs_trip_id ON gps_logs(trip_id);
 CREATE INDEX idx_bus_cameras_bus_active ON bus_cameras(bus_id, is_active);
 CREATE INDEX idx_service_alerts_active ON service_alerts(is_active, created_at);
 CREATE INDEX idx_route_stops_route_sequence ON route_stops(route_id, stop_sequence);
+CREATE INDEX idx_admin_notifications_status ON admin_notifications(notification_type, status, created_at);
+CREATE INDEX idx_password_reset_tokens_lookup ON password_reset_tokens(token_hash, used_at, expires_at);
+CREATE INDEX idx_password_reset_tokens_user ON password_reset_tokens(user_id, created_at);

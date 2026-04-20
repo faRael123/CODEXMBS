@@ -7,12 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=theme-sidebar-1">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body data-admin-live-endpoint="{{ url_for('api_admin_live') }}" data-admin-initial-tab="{{ active_tab }}">
-  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
   {% set maintenance_count = overview.fleet_rows | selectattr('status', 'equalto', 'maintenance') | list | length %}
   {% set online_count = overview.fleet_rows | selectattr('status', 'equalto', 'online') | list | length %}
   {% set route_count = overview.route_rows | length %}
@@ -67,6 +66,19 @@
           </div>
         </div>
         <div class="header-actions">
+          {% if false %}
+          <button
+            type="button"
+            class="notification-chip {% if not overview.password_reset_alerts %}is-hidden{% endif %}"
+            id="passwordResetHeaderNotice"
+            data-target="profiles"
+            aria-live="polite"
+          >
+            {{ admin_icon('alert') }}
+            <span id="passwordResetHeaderCount">{{ overview.password_reset_alerts|length }}</span>
+            <strong>Password reset</strong>
+          </button>
+          {% endif %}
           <a href="{{ url_for('admin_report') }}" class="ghost-button">{{ admin_icon('download') }}Export Report</a>
         </div>
       </header>
@@ -83,16 +95,28 @@
 
         <div class="sidebar-topbar">
           <strong>{{ admin_icon('overview') }}Menu</strong>
+          <button type="button" class="theme-toggle sidebar-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
           <button class="menu-close" id="adminMenuClose" aria-label="Close admin menu">×</button>
         </div>
 
         <nav class="sidebar-nav" id="adminTabNav">
           <button type="button" class="tab-link {% if active_tab == 'operations' %}active{% endif %}" data-target="operations">{{ admin_icon('bus') }}Live Operations</button>
           <button type="button" class="tab-link {% if active_tab == 'add-bus' %}active{% endif %}" data-target="add-bus">{{ admin_icon('bus') }}Add / Edit Bus</button>
+          {# Camera integration is hidden for defense readiness; the section remains available at /admin?tab=cameras. #}
+          {% if false %}
           <button type="button" class="tab-link {% if active_tab == 'cameras' %}active{% endif %}" data-target="cameras">{{ admin_icon('camera') }}Camera Feeds</button>
+          {% endif %}
           <button type="button" class="tab-link {% if active_tab in ['overview', 'analytics'] %}active{% endif %}" data-target="analytics">{{ admin_icon('chart') }}Crowd Analytics</button>
+          {% if false %}
+          <button type="button" class="tab-link {% if active_tab == 'password-resets' %}active{% endif %}" data-target="password-resets">
+            {{ admin_icon('alert') }}Password Resets
+            <span class="tab-count {% if not overview.password_reset_alerts %}is-hidden{% endif %}" id="passwordResetTabCount">{{ overview.password_reset_alerts|length }}</span>
+          </button>
+          {% endif %}
           <button type="button" class="tab-link {% if active_tab == 'commuter' %}active{% endif %}" data-target="commuter">{{ admin_icon('route') }}Commuter Info</button>
+          {% if false %}
           <button type="button" class="tab-link {% if active_tab == 'profiles' %}active{% endif %}" data-target="profiles">{{ admin_icon('user') }}Profiles</button>
+          {% endif %}
           <button type="button" class="tab-link {% if active_tab == 'reports' %}active{% endif %}" data-target="reports">{{ admin_icon('report') }}Reports</button>
           <button type="button" class="tab-link {% if active_tab == 'audit' %}active{% endif %}" data-target="audit">{{ admin_icon('audit') }}Audit Trail</button>
           <button type="button" class="tab-link {% if active_tab == 'logs' %}active{% endif %}" data-target="logs">{{ admin_icon('log') }}Logs</button>
@@ -122,6 +146,33 @@
         </div>
       </aside>
     </div>
+      {% if false %}
+      <section class="password-reset-notice {% if not overview.password_reset_alerts %}is-hidden{% endif %}" id="passwordResetNotice" role="status" aria-live="polite">
+        <div class="notice-icon">{{ admin_icon('alert') }}</div>
+        <div class="notice-content">
+          <div>
+            <p class="notice-kicker">Account Security Alert</p>
+            <h2 id="passwordResetNoticeTitle">{{ overview.password_reset_alerts|length }} password reset request{% if overview.password_reset_alerts|length != 1 %}s{% endif %} need admin review</h2>
+            <p id="passwordResetNoticeLatest">{% if overview.password_reset_alerts %}Latest request: {{ overview.password_reset_alerts[0].description }}{% endif %}</p>
+          </div>
+          <button type="button" class="notice-action" data-target="profiles">{{ admin_icon('user') }}Reset in Profiles</button>
+        </div>
+        <div class="notice-list" id="passwordResetNoticeList">
+          {% for alert in overview.password_reset_alerts %}
+          <div class="notice-pill">
+            <p><strong>{{ alert.created_at }}</strong> {{ alert.description }}</p>
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="dismiss_password_reset_notification">
+              <input type="hidden" name="notification_id" value="{{ alert.id }}">
+              <input type="hidden" name="redirect_tab" value="{{ active_tab }}">
+              <button type="submit" class="notification-dismiss notification-dismiss-small" aria-label="Dismiss password reset notification">&times;</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
       <section id="operations" class="content-section {% if active_tab == 'operations' %}is-active{% endif %}">
         <div class="section-head">
           <div>
@@ -129,6 +180,33 @@
             <h2>{{ admin_icon('bus') }}Current fleet movement and active coordinates</h2>
           </div>
         </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('alert') }}Operations Notifications</h3>
+            <span id="operationNotificationSummary">{{ overview.operation_notifications|length }} unread event{% if overview.operation_notifications|length != 1 %}s{% endif %}</span>
+          </div>
+          <div class="alert-admin-list" id="operationNotificationList">
+            {% for notification in overview.operation_notifications %}
+            <article class="alert-admin-item severity-{{ 'critical' if notification.notification_type == 'bus_full' else 'warning' if notification.notification_type == 'high_crowd' else 'info' }}">
+              <div>
+                <strong>{{ notification.title }}</strong>
+                <span>{{ notification.created_at }} / {{ notification.notification_type|replace('_', ' ')|title }}</span>
+                <p>{{ notification.description }}</p>
+              </div>
+              <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="dismiss_admin_notification">
+                <input type="hidden" name="notification_id" value="{{ notification.id }}">
+                <input type="hidden" name="redirect_tab" value="operations">
+                <button type="submit" class="mini-button">Mark Read</button>
+              </form>
+            </article>
+            {% else %}
+            <p class="section-copy">No operations notifications right now.</p>
+            {% endfor %}
+          </div>
+        </article>
 
         <div class="operations-grid">
           <article class="panel panel-large">
@@ -217,6 +295,47 @@
           </article>
         </div>
       </section>
+
+      {% if false %}
+      <section id="password-resets" class="content-section {% if active_tab == 'password-resets' %}is-active{% endif %}">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Admin Notifications</p>
+            <h2>{{ admin_icon('alert') }}Password reset requests</h2>
+          </div>
+        </div>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>{{ admin_icon('user') }}Requests Needing Review</h3>
+            <span id="passwordResetTabSummary">{{ overview.password_reset_alerts|length }} unread request{% if overview.password_reset_alerts|length != 1 %}s{% endif %}</span>
+          </div>
+          <div class="alert-admin-list" id="passwordResetTabList">
+            {% for alert in overview.password_reset_alerts %}
+            <article class="alert-admin-item severity-critical">
+              <div>
+                <strong>{{ alert.title or 'Password reset request' }}</strong>
+                <span>{{ alert.created_at }}{% if alert.role %} · {{ alert.role|title }}{% endif %}</span>
+                <p>{{ alert.description }}</p>
+              </div>
+              <div class="notification-actions">
+                <a class="mini-button" href="{{ url_for('admin_dashboard', tab='profiles') }}">Open Profiles</a>
+                <form method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="dismiss_password_reset_notification">
+                  <input type="hidden" name="notification_id" value="{{ alert.id }}">
+                  <input type="hidden" name="redirect_tab" value="password-resets">
+                  <button type="submit" class="notification-dismiss" aria-label="Dismiss password reset notification">&times;</button>
+                </form>
+              </div>
+            </article>
+            {% else %}
+            <p class="section-copy">No password reset requests right now.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+      {% endif %}
 
       <section id="add-bus" class="content-section {% if active_tab == 'add-bus' %}is-active{% endif %}">
         <div class="section-head">
@@ -663,6 +782,71 @@
             </table>
           </article>
 
+          {# Fare matrix is hidden for now; backend support remains available for later pricing review. #}
+          {% if false %}
+          <article class="panel panel-large">
+            <div class="panel-head">
+              <h3>{{ admin_icon('chart') }}Fare Matrix</h3>
+              <span>Edit stop-to-stop prices used by the conductor terminal</span>
+            </div>
+            <p class="form-note">Values shown are either saved matrix fares or the current computed fallback. Save a route to turn those rows into conductor fare overrides.</p>
+
+            <div class="fare-matrix-groups">
+              {% for route in overview.fare_matrix_editor %}
+              <details class="fare-matrix-route" {% if loop.first %}open{% endif %}>
+                <summary>
+                  <strong>{{ route.route_name }}</strong>
+                  <span>{{ route.stop_count }} stops / {{ route.segments|length }} fare rows</span>
+                </summary>
+                <form method="POST" class="fare-matrix-table-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="save_fare_matrix_table">
+                  <input type="hidden" name="redirect_tab" value="commuter">
+                  <input type="hidden" name="route_id" value="{{ route.id }}">
+                  <div class="fare-matrix-scroll">
+                    <table class="fare-matrix-table">
+                      <thead>
+                        <tr>
+                          <th>From</th>
+                          <th>To</th>
+                          <th>Regular Fare</th>
+                          <th>Discounted Fare</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for segment in route.segments %}
+                        <tr>
+                          <td>
+                            {{ segment.origin_stop }}
+                            <input type="hidden" name="origin_stop" value="{{ segment.origin_stop }}">
+                          </td>
+                          <td>
+                            {{ segment.destination_stop }}
+                            <input type="hidden" name="destination_stop" value="{{ segment.destination_stop }}">
+                          </td>
+                          <td>
+                            <input type="text" name="regular_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(segment.regular_fare) }}" required>
+                          </td>
+                          <td>
+                            <input type="text" name="discounted_fare" inputmode="numeric" pattern="[0-9]*" value="{{ '%.0f'|format(segment.discounted_fare) }}" required>
+                          </td>
+                          <td>{{ 'Saved' if segment.is_saved else 'Computed' }}</td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button type="submit" class="solid-button form-submit">Save {{ route.route_name }} Matrix</button>
+                </form>
+              </details>
+              {% else %}
+              <p class="section-copy">No published routes are available for fare editing.</p>
+              {% endfor %}
+            </div>
+          </article>
+          {% endif %}
+
           <article class="panel">
             <div class="panel-head">
               <h3>{{ admin_icon('alert') }}Create Service Alert</h3>
@@ -746,11 +930,11 @@
             </div>
           </article>
 
-          <article class="panel">
-            <div class="panel-head">
-              <h3>{{ admin_icon('audit') }}Alert Archive</h3>
-              <span>Expired and completed service alerts</span>
-            </div>
+          <details class="panel filter-dropdown">
+            <summary class="filter-summary">
+              <span>{{ admin_icon('audit') }}Alert Archive</span>
+              <strong>Expired and completed service alerts</strong>
+            </summary>
             <div class="alert-admin-list">
               {% for alert in overview.archived_service_alerts %}
               <article class="alert-admin-item severity-{{ alert.severity }}">
@@ -765,7 +949,7 @@
               <p class="section-copy">No archived alerts yet.</p>
               {% endfor %}
             </div>
-          </article>
+          </details>
         </div>
       </section>
 
@@ -774,8 +958,52 @@
           <div>
             <p class="eyebrow">Reports</p>
             <h2>{{ admin_icon('report') }}Structured trip, bus, passenger, and revenue reporting</h2>
+            <p class="section-copy">
+              {% if overview.report_filters.is_filtered %}
+                Showing trips from {{ overview.report_filters.start or 'the first record' }} to {{ overview.report_filters.end or 'the latest record' }}.
+              {% else %}
+                Showing the latest report rows. Select dates to review a specific period.
+              {% endif %}
+            </p>
           </div>
         </div>
+
+        <details class="panel filter-dropdown" {% if overview.report_filters.is_filtered %}open{% endif %}>
+          <summary class="filter-summary">
+            <span>{{ admin_icon('clock') }}Date Filter</span>
+            <strong>
+              {% if overview.report_filters.is_filtered %}
+                {{ overview.report_filters.start or 'First record' }} to {{ overview.report_filters.end or 'Latest record' }}
+              {% else %}
+                All dates
+              {% endif %}
+            </strong>
+          </summary>
+          <form method="GET" class="stack-form filter-dropdown-body">
+            <input type="hidden" name="tab" value="reports">
+            <div class="form-grid">
+              <label>
+                <span>From</span>
+                <input type="date" name="report_start" id="reportStartDate" value="{{ overview.report_filters.start }}">
+              </label>
+              <label>
+                <span>To</span>
+                <input type="date" name="report_end" id="reportEndDate" value="{{ overview.report_filters.end }}" {% if overview.report_filters.start %}min="{{ overview.report_filters.start }}"{% endif %}>
+              </label>
+              <label>
+                <span>Export</span>
+                <a
+                  href="{{ url_for('admin_report', report_start=overview.report_filters.start, report_end=overview.report_filters.end) }}"
+                  class="ghost-button"
+                >{{ admin_icon('download') }}PDF</a>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <button type="submit" class="solid-button form-submit">{{ admin_icon('report') }}Apply Filter</button>
+              <a href="{{ url_for('admin_dashboard', tab='reports') }}" class="ghost-button">Clear Filter</a>
+            </div>
+          </form>
+        </details>
 
         <div class="stats-grid dense">
           <article class="stat-card">
@@ -833,7 +1061,7 @@
                 </tr>
               </thead>
               <tbody>
-                {% for row in overview.route_rows %}
+                {% for row in overview.report_route_rows %}
                 <tr>
                   <td>{{ row.route_name }}</td>
                   <td>{{ row.trip_count }}</td>
@@ -896,6 +1124,7 @@
         </div>
       </section>
 
+      {% if false %}
       <section id="profiles" class="content-section {% if active_tab == 'profiles' %}is-active{% endif %}">
         <div class="section-head">
           <div>
@@ -1060,6 +1289,7 @@
           {% endif %}
         </div>
       </section>
+      {% endif %}
 
       <section id="audit" class="content-section {% if active_tab == 'audit' %}is-active{% endif %}">
         <div class="section-head">
@@ -1317,6 +1547,6 @@
   <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script type="application/json" id="adminChartData">{{ overview.charts|tojson }}</script>
-  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/admin-dashboard.js') }}?v=polling-socket-1"></script>
 </body>
 </html>

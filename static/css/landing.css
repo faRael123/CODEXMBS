@@ -38,6 +38,12 @@
 
 * { box-sizing: border-box; }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Outfit", sans-serif;
@@ -50,6 +56,23 @@ body {
 
 html {
   scroll-behavior: smooth;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+p,
+strong,
+span,
+a {
+  overflow-wrap: anywhere;
 }
 
 .ui-icon {
@@ -69,22 +92,36 @@ html {
 .landing-topbar, .landing-hero, .landing-main { max-width: 1440px; margin: 0 auto; }
 
 .landing-topbar {
+  max-width: min(1480px, calc(100vw - 48px));
+}
+
+.landing-topbar > *,
+.location-card > *,
+.planner-panel > *,
+.planner-shell > *,
+.planner-main > *,
+.landing-main > *,
+.landing-footer > * {
+  min-width: 0;
+}
+
+.landing-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 24px;
+  gap: 28px;
   margin-bottom: 18px;
-  padding: 14px 16px;
+  padding: 20px 24px;
   background: var(--panel-strong);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 20px;
+  border-radius: 24px;
 }
 
 .topbar-left {
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
+  align-items: center;
+  gap: 22px;
 }
 
 .landing-topbar h1 {
@@ -183,21 +220,21 @@ html {
 }
 
 .brand-lockup.compact img {
-  width: 58px;
-  height: 58px;
+  width: 74px;
+  height: 74px;
   object-fit: contain;
 }
 
 .brand-name {
-  margin: 0 0 2px;
-  font-size: 1rem;
-  font-weight: 700;
+  margin: 0 0 4px;
+  font-size: 1.18rem;
+  font-weight: 800;
 }
 
 .brand-sub {
   margin: 0;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 1rem;
 }
 
 .location-label {
@@ -623,6 +660,21 @@ html {
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.bus-card .eta-row {
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--hero-stat);
+  border: 1px solid var(--line);
+}
+
+.bus-card .eta-row strong {
+  color: var(--brand);
+  font-size: 1rem;
+  text-align: right;
 }
 
 .crowd-pill {
@@ -662,22 +714,22 @@ html {
 }
 
 .menu-toggle {
-  width: 48px;
-  height: 48px;
+  width: 58px;
+  height: 58px;
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 14px;
+  border-radius: 16px;
   display: inline-flex;
   flex-direction: column;
   justify-content: center;
   gap: 5px;
-  padding: 10px;
+  padding: 12px;
   cursor: pointer;
 }
 
 .menu-toggle span {
   display: block;
-  height: 2px;
+  height: 3px;
   width: 100%;
   background: var(--ink);
   border-radius: 999px;
@@ -722,22 +774,64 @@ html {
 }
 
 .theme-toggle {
+  width: 48px;
+  height: 48px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
   border-radius: 14px;
-  padding: 10px 14px;
+  padding: 0;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.theme-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.theme-menu-icon {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: currentColor;
+  border-radius: 0;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: none;
 }
 
 .floating-theme-toggle {
   position: fixed;
   bottom: 22px;
-  right: 24px;
+  left: 24px;
   z-index: 4000;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.sidebar-theme-toggle {
+  position: static;
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+
+.list-panel #themeToggle,
+.legacy-menu-theme-row {
+  display: none !important;
+}
+
+.menu-head .menu-theme-toggle {
+  position: static;
+  box-shadow: none;
+  margin-left: auto;
+  margin-right: 8px;
 }
 
 .menu-links {
@@ -745,7 +839,8 @@ html {
   gap: 10px;
 }
 
-.menu-links a {
+.menu-links a,
+.menu-theme-row {
   text-decoration: none;
   color: var(--ink);
   padding: 12px 14px;
@@ -756,9 +851,14 @@ html {
   display: flex;
   align-items: center;
   gap: 10px;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
 }
 
-.menu-links a:hover {
+.menu-links a:hover,
+.menu-theme-row:hover {
   background: var(--brand);
   border-color: var(--brand);
   color: white;
@@ -947,6 +1047,10 @@ html {
     border-radius: 20px;
   }
 
+  .landing-topbar {
+    max-width: 100%;
+  }
+
   .topbar-left {
     align-items: center;
   }
@@ -956,16 +1060,16 @@ html {
   }
 
   .brand-lockup.compact img {
-    width: 48px;
-    height: 48px;
+    width: 58px;
+    height: 58px;
   }
 
   .brand-name {
-    font-size: 0.94rem;
+    font-size: 1rem;
   }
 
   .brand-sub {
-    font-size: 0.84rem;
+    font-size: 0.9rem;
   }
 
   #map {
@@ -1017,9 +1121,13 @@ html {
     width: 100%;
   }
 
+  .planner-control .ghost-action {
+    min-height: 48px;
+  }
+
   .floating-theme-toggle {
     top: auto;
-    right: 14px;
+    left: 14px;
     bottom: 14px;
   }
 
@@ -1034,5 +1142,58 @@ html {
 
   .planner-fares {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .landing-shell {
+    padding: 10px;
+  }
+
+  .landing-topbar,
+  .location-card,
+  .map-panel,
+  .list-panel,
+  .planner-panel,
+  .landing-footer,
+  .menu-panel {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .topbar-left {
+    gap: 10px;
+  }
+
+  .menu-toggle {
+    width: 48px;
+    height: 48px;
+    padding: 10px;
+  }
+
+  .brand-lockup.compact img {
+    width: 48px;
+    height: 48px;
+  }
+
+  #map {
+    min-height: 300px;
+  }
+
+  .bus-card,
+  .planner-empty,
+  .planner-result-card,
+  .stop-card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .bus-card .eta-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bus-card .eta-row strong {
+    text-align: left;
   }
 }

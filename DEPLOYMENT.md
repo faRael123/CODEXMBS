@@ -12,6 +12,9 @@ DB_USER=<mysql user>
 DB_PASSWORD=<mysql password>
 DB_NAME=<mysql database name>
 FLASK_ENV=production
+GMAIL_USER=gajoda.system@gmail.com
+GMAIL_APP_PASSWORD=<gmail app password>
+APP_BASE_URL=<public app URL>
 ```
 
 `DB_NAME` may only contain letters, numbers, and underscores.
@@ -27,6 +30,8 @@ MYSQLDATABASE
 ```
 
 Keep `SECRET_KEY` and `FLASK_ENV=production` set manually in Railway variables.
+
+`GMAIL_APP_PASSWORD` is the 16-character Gmail app password for `GMAIL_USER`. Keep it in environment variables only. `APP_BASE_URL` must match the public deployment URL so password reset links point to the live system.
 
 ## Database Setup
 

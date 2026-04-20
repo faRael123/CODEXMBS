@@ -8,6 +8,20 @@
     const adminMenuClose = document.getElementById('adminMenuClose');
     const adminTabNav = document.getElementById('adminTabNav');
     const adminSections = document.querySelectorAll('.content-section');
+    const passwordResetNotice = document.getElementById('passwordResetNotice');
+    const passwordResetNoticeTitle = document.getElementById('passwordResetNoticeTitle');
+    const passwordResetNoticeLatest = document.getElementById('passwordResetNoticeLatest');
+    const passwordResetNoticeList = document.getElementById('passwordResetNoticeList');
+    const passwordResetHeaderNotice = document.getElementById('passwordResetHeaderNotice');
+    const passwordResetHeaderCount = document.getElementById('passwordResetHeaderCount');
+    const passwordResetTabCount = document.getElementById('passwordResetTabCount');
+    const passwordResetTabSummary = document.getElementById('passwordResetTabSummary');
+    const passwordResetTabList = document.getElementById('passwordResetTabList');
+    const csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+    const reportStartDate = document.getElementById('reportStartDate');
+    const reportEndDate = document.getElementById('reportEndDate');
+    const operationNotificationSummary = document.getElementById('operationNotificationSummary');
+    const operationNotificationList = document.getElementById('operationNotificationList');
 
     function markerColor(level) {
       if (level === 'High') return '#dc2626';
@@ -249,6 +263,25 @@
       });
     }
     updateReportCharts(reportBusFilter ? reportBusFilter.value : 'all');
+
+    function syncReportDateLimits() {
+      if (!reportStartDate || !reportEndDate) {
+        return;
+      }
+
+      reportEndDate.min = reportStartDate.value || '';
+      reportStartDate.max = reportEndDate.value || '';
+
+      if (reportStartDate.value && reportEndDate.value && reportEndDate.value < reportStartDate.value) {
+        reportEndDate.value = reportStartDate.value;
+      }
+    }
+
+    if (reportStartDate && reportEndDate) {
+      reportStartDate.addEventListener('change', syncReportDateLimits);
+      reportEndDate.addEventListener('change', syncReportDateLimits);
+      syncReportDateLimits();
+    }
 
     function roundPeso(value) {
       return Math.max(Math.round(Number(value) || 0), 1);
@@ -693,6 +726,114 @@
       renderCameraMode();
     }
 
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[character]));
+    }
+
+    function renderPasswordResetNotice(alerts) {
+      if (!passwordResetNotice || !passwordResetNoticeTitle || !passwordResetNoticeLatest || !passwordResetNoticeList) {
+        return;
+      }
+
+      const rows = Array.isArray(alerts) ? alerts : [];
+      if (passwordResetHeaderNotice && passwordResetHeaderCount) {
+        passwordResetHeaderNotice.classList.toggle('is-hidden', rows.length === 0);
+        passwordResetHeaderCount.textContent = String(rows.length);
+      }
+      if (passwordResetTabCount) {
+        passwordResetTabCount.classList.toggle('is-hidden', rows.length === 0);
+        passwordResetTabCount.textContent = String(rows.length);
+      }
+      if (passwordResetTabSummary) {
+        passwordResetTabSummary.textContent = `${rows.length} unread request${rows.length === 1 ? '' : 's'}`;
+      }
+      if (passwordResetTabList) {
+        passwordResetTabList.innerHTML = rows.length
+          ? rows.map((alert) => `
+            <article class="alert-admin-item severity-critical">
+              <div>
+                <strong>${escapeHtml(alert.title || 'Password reset request')}</strong>
+                <span>${escapeHtml(alert.created_at)}${alert.role ? ` &middot; ${escapeHtml(alert.role)}` : ''}</span>
+                <p>${escapeHtml(alert.description || 'Password reset requested')}</p>
+              </div>
+              <div class="notification-actions">
+                <button type="button" class="mini-button" data-target="profiles">Open Profiles</button>
+                <form method="POST">
+                  <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
+                  <input type="hidden" name="action" value="dismiss_password_reset_notification">
+                  <input type="hidden" name="notification_id" value="${escapeHtml(alert.id)}">
+                  <input type="hidden" name="redirect_tab" value="password-resets">
+                  <button type="submit" class="notification-dismiss" aria-label="Dismiss password reset notification">&times;</button>
+                </form>
+              </div>
+            </article>
+          `).join('')
+          : '<p class="section-copy">No password reset requests right now.</p>';
+      }
+
+      passwordResetNotice.classList.toggle('is-hidden', rows.length === 0);
+      if (!rows.length) {
+        passwordResetNoticeTitle.textContent = '0 password reset requests need admin review';
+        passwordResetNoticeLatest.textContent = '';
+        passwordResetNoticeList.innerHTML = '';
+        return;
+      }
+
+      passwordResetNoticeTitle.textContent = `${rows.length} password reset request${rows.length === 1 ? '' : 's'} need admin review`;
+      passwordResetNoticeLatest.textContent = `Latest request: ${rows[0].description || ''}`;
+      passwordResetNoticeList.innerHTML = rows.map((alert) => `
+        <div class="notice-pill">
+          <p><strong>${escapeHtml(alert.created_at)}</strong> ${escapeHtml(alert.description || alert.title || 'Password reset requested')}</p>
+          <form method="POST">
+            <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
+            <input type="hidden" name="action" value="dismiss_password_reset_notification">
+            <input type="hidden" name="notification_id" value="${escapeHtml(alert.id)}">
+            <input type="hidden" name="redirect_tab" value="${escapeHtml(initialAdminTab || 'analytics')}">
+            <button type="submit" class="notification-dismiss notification-dismiss-small" aria-label="Dismiss password reset notification">&times;</button>
+          </form>
+        </div>
+      `).join('');
+    }
+
+    function operationSeverity(type) {
+      if (type === 'bus_full') return 'critical';
+      if (type === 'high_crowd') return 'warning';
+      return 'info';
+    }
+
+    function renderOperationNotifications(notifications) {
+      if (!operationNotificationList || !operationNotificationSummary) {
+        return;
+      }
+
+      const rows = Array.isArray(notifications) ? notifications : [];
+      operationNotificationSummary.textContent = `${rows.length} unread event${rows.length === 1 ? '' : 's'}`;
+      operationNotificationList.innerHTML = rows.length
+        ? rows.map((notification) => `
+          <article class="alert-admin-item severity-${operationSeverity(notification.notification_type)}">
+            <div>
+              <strong>${escapeHtml(notification.title || 'Operations notification')}</strong>
+              <span>${escapeHtml(notification.created_at)} / ${escapeHtml(String(notification.notification_type || 'event').replaceAll('_', ' '))}</span>
+              <p>${escapeHtml(notification.description || '')}</p>
+            </div>
+            <form method="POST">
+              <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
+              <input type="hidden" name="action" value="dismiss_admin_notification">
+              <input type="hidden" name="notification_id" value="${escapeHtml(notification.id)}">
+              <input type="hidden" name="redirect_tab" value="operations">
+              <button type="submit" class="mini-button">Mark Read</button>
+            </form>
+          </article>
+        `).join('')
+        : '<p class="section-copy">No operations notifications right now.</p>';
+    }
+
     async function refreshAdminLive() {
       try {
         const response = await fetch(adminLiveEndpoint, { cache: 'no-store' });
@@ -712,6 +853,8 @@
       renderLiveBusTable(Array.isArray(payload.live_bus_rows) ? payload.live_bus_rows : []);
       renderCameraOptions();
       renderAdminMap();
+      renderPasswordResetNotice(payload.password_reset_alerts);
+      renderOperationNotifications(payload.operation_notifications);
     }
 
     function connectAdminLiveSocket() {
@@ -720,7 +863,7 @@
       }
 
       const socket = io({
-        transports: ['websocket', 'polling'],
+        transports: ['polling'],
         reconnection: true
       });
 
@@ -747,6 +890,28 @@
           return;
         }
         showSection(button.dataset.target);
+      });
+    }
+
+    document.querySelectorAll('.notice-action[data-target]').forEach((button) => {
+      button.addEventListener('click', () => showSection(button.dataset.target));
+    });
+
+    if (passwordResetTabList) {
+      passwordResetTabList.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-target]');
+        if (button) {
+          showSection(button.dataset.target);
+        }
+      });
+    }
+
+    if (passwordResetHeaderNotice) {
+      passwordResetHeaderNotice.addEventListener('click', () => {
+        showSection(passwordResetHeaderNotice.dataset.target || 'profiles');
+        if (passwordResetNotice) {
+          passwordResetNotice.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       });
     }
 

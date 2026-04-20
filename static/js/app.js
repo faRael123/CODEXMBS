@@ -7,6 +7,7 @@ let hasSetInitialMapView = false;
 let shouldFocusUserLocation = false;
 const LIVE_TRACKING_REFRESH_MS = 3000;
 const COMMUTER_DATA_REFRESH_MS = 10000;
+const FALLBACK_BUS_SPEED_KPH = 24;
 
 const mapElement = document.getElementById('map');
 const map = mapElement ? L.map('map').setView([15.37, 120.94], 10) : null;
@@ -181,6 +182,40 @@ function distanceKm(a, b) {
   return earth * 2 * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
 }
 
+function formatArrivalMinutes(minutes) {
+  if (!Number.isFinite(Number(minutes))) {
+    return 'ETA unavailable';
+  }
+
+  const rounded = Math.max(Math.round(Number(minutes)), 0);
+  if (rounded <= 0) {
+    return 'Arriving now';
+  }
+  if (rounded === 1) {
+    return 'About 1 min';
+  }
+  return `About ${rounded} min`;
+}
+
+function estimateMinutesFromDistance(distanceKmValue, route = null) {
+  const distance = Number(distanceKmValue);
+  if (!Number.isFinite(distance)) {
+    return null;
+  }
+
+  const routeDistance = Number(route?.distanceKm);
+  const routeDuration = Number(route?.expectedDurationMinutes);
+  const routeSpeed = routeDistance > 0 && routeDuration > 0
+    ? routeDistance / (routeDuration / 60)
+    : FALLBACK_BUS_SPEED_KPH;
+  const speedKph = Math.min(Math.max(routeSpeed || FALLBACK_BUS_SPEED_KPH, 10), 45);
+  return Math.max(Math.ceil((distance / speedKph) * 60), distance > 0 ? 1 : 0);
+}
+
+function getRouteByName(routeName) {
+  return getRoutes().find((route) => stopNameKey(route.routeName) === stopNameKey(routeName)) || null;
+}
+
 function offsetIfOverlapping(lat, lng) {
   if (!userLocation) {
     return [lat, lng];
@@ -203,6 +238,7 @@ function getSortedBuses() {
       ? distanceKm(userLocation, { lat: Number(bus.lat), lng: Number(bus.lng) })
       : Number.POSITIVE_INFINITY;
     bus.capacityRatio = Number(bus.capacity) > 0 ? Number(bus.passengers) / Number(bus.capacity) : 0;
+    bus.arrivalEstimate = estimateBusArrivalForCommuter(bus);
   });
 
   if (sortMode === 'capacity_low') {
@@ -214,6 +250,51 @@ function getSortedBuses() {
   }
 
   return sorted;
+}
+
+function estimateBusArrivalForCommuter(bus) {
+  if (!userLocation || bus.tripStatus !== 'active' || !bus.isLiveTracked || !hasValidCoordinates(bus.lat, bus.lng)) {
+    return null;
+  }
+
+  const route = getRouteByName(bus.direction);
+  const nearestStop = findNearestStopForCurrentLocation();
+  if (route && nearestStop && findRouteStopIndex(route, nearestStop.name) >= 0) {
+    const stopMinutes = estimateMinutesToStop(route, bus, nearestStop.name);
+    if (stopMinutes !== null) {
+      return {
+        minutes: stopMinutes,
+        label: `${formatArrivalMinutes(stopMinutes)} to ${nearestStop.name}`,
+        detail: 'Nearest stop from your location'
+      };
+    }
+  }
+
+  const directDistance = distanceKm(userLocation, { lat: Number(bus.lat), lng: Number(bus.lng) });
+  const directMinutes = estimateMinutesFromDistance(directDistance, route);
+  if (directMinutes === null) {
+    return null;
+  }
+
+  return {
+    minutes: directMinutes,
+    label: `${formatArrivalMinutes(directMinutes)} to your area`,
+    detail: `${directDistance.toFixed(2)} km from you`
+  };
+}
+
+function renderBusArrivalEstimate(bus) {
+  if (!userLocation) {
+    return 'Allow location to show ETA';
+  }
+  if (bus.tripStatus !== 'active' || !bus.isLiveTracked) {
+    return 'ETA unavailable';
+  }
+  return bus.arrivalEstimate ? bus.arrivalEstimate.label : 'ETA unavailable';
+}
+
+function renderBusTripStatus(bus) {
+  return bus.tripStatus === 'active' ? 'Active trip' : 'No active trip';
 }
 
 function renderBusList() {
@@ -235,16 +316,20 @@ function renderBusList() {
         <span class="crowd-pill ${bus.crowdLevel}">${bus.crowdLevel}</span>
       </div>
       <div class="row">
-        <span>Status: ${bus.status}</span>
+        <span>Status: ${renderBusTripStatus(bus)}</span>
         <span>${bus.driver}</span>
       </div>
       <div class="row">
         <span>${bus.nextStop}</span>
         <span>${bus.tripStatus === 'active' && Number.isFinite(bus.distanceKm) ? `${bus.distanceKm.toFixed(2)} km away` : 'Distance unavailable'}</span>
       </div>
+      <div class="row eta-row">
+        <span>Arrival</span>
+        <strong>${renderBusArrivalEstimate(bus)}</strong>
+      </div>
       <div class="row">
         <span>${Math.round(bus.capacityRatio * 100)}% load</span>
-        <span>${bus.tripStatus === 'active' ? 'Live trip' : 'No active trip'}</span>
+        <span>${bus.isLiveTracked ? 'Live tracking active' : 'Awaiting GPS'}</span>
       </div>
     </article>
   `).join('');
@@ -309,7 +394,8 @@ function renderMap() {
       ${bus.direction}<br>
       Status: ${bus.status}<br>
       ${bus.passengers}/${bus.capacity} passengers<br>
-      ${bus.nextStop}
+      ${bus.nextStop}<br>
+      Arrival: ${renderBusArrivalEstimate(bus)}
     `);
     bounds.push([markerLat, markerLng]);
   });
@@ -807,7 +893,7 @@ function connectLiveTrackingSocket() {
   }
 
   const socket = io({
-    transports: ['websocket', 'polling'],
+    transports: ['polling'],
     reconnection: true
   });
 

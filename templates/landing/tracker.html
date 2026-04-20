@@ -8,10 +8,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}?v=tracker-theme-bottom-left-1">
 </head>
 <body data-live-bus-endpoint="{{ url_for('api_live_buses') }}" data-public-commuter-endpoint="{{ url_for('api_public_commuter') }}">
-  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
   <div class="landing-shell">
     <header class="landing-topbar">
       <div class="topbar-left">
@@ -184,12 +184,17 @@
     <div class="menu-panel">
       <div class="menu-head">
         <h3>Menu</h3>
+        <button type="button" class="theme-toggle menu-theme-toggle legacy-menu-theme-row" aria-label="Toggle dark mode"></button>
         <button class="menu-close" id="menuClose" aria-label="Close menu">×</button>
       </div>
       <nav class="menu-links">
         <a href="{{ url_for('landing') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5z"/></svg>Home</a>
         <a href="{{ url_for('tracker') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.9 6.5 12.5 6.5 12.5S18.5 13.9 18.5 9A6.5 6.5 0 0 0 12 2.5m0 9.2A2.7 2.7 0 1 1 12 6.3a2.7 2.7 0 0 1 0 5.4"/></svg>Track Minibus</a>
         <a href="{{ url_for('login') }}"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H5.5A1.5 1.5 0 0 0 4 11.5v8A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5H17V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z"/></svg>Staff Login</a>
+        <button type="button" class="menu-theme-row legacy-menu-theme-row" aria-label="Toggle dark mode">
+          <span class="theme-menu-icon theme-toggle"></span>
+          <span>Theme</span>
+        </button>
       </nav>
     </div>
   </div>
@@ -200,6 +205,6 @@
   <script type="application/json" id="publicCommuterData">{{ commuter_data_json|safe }}</script>
   <script src="{{ url_for('static', filename='js/public-tracker-config.js') }}"></script>
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=polling-socket-1"></script>
 </body>
 </html>

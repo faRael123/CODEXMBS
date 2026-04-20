@@ -7,14 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/conductor.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/conductor.css') }}?v=theme-sidebar-1">
 </head>
 <body
   data-conductor-live-endpoint="{{ url_for('conductor_live') }}"
+  data-conductor-panels-endpoint="{{ url_for('conductor_panels') }}"
   data-conductor-location-endpoint="{{ url_for('conductor_location') }}"
   data-csrf-token="{{ csrf_token() }}"
 >
-  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
+  {% if not overview.active_trip %}
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+  {% endif %}
   <div class="conductor-shell">
     <header class="conductor-topbar">
       <div>
@@ -22,11 +25,11 @@
           <img src="{{ url_for('static', filename='img/gajoda-logo.svg') }}" alt="Gajoda Transportation Services logo">
           <div>
             <p class="brand-name">Gajoda Transportation Services</p>
-            <p class="brand-sub">Conductor Mock Ticketing</p>
+            <p class="brand-sub">Conductor Ticketing</p>
           </div>
         </div>
         <p class="eyebrow">Conductor Terminal</p>
-        <h1>Destination-first boarding capture</h1>
+        <h1>Boarding ticket terminal</h1>
       </div>
     </header>
 
@@ -80,11 +83,7 @@
           <div class="terminal-head">
             <div>
               <h3>Pick destination, then passenger type</h3>
-              <p>GPS decides the origin stop, the conductor picks the destination and fare type, then prints one boarding ticket.</p>
-              <div class="printer-compat">
-                <span>58mm Bluetooth thermal printer</span>
-                <strong>Receipt width ready</strong>
-              </div>
+              <p>GPS decides the origin stop, the conductor picks the destination and fare type, then saves and prints one boarding ticket.</p>
             </div>
           </div>
 
@@ -142,7 +141,7 @@
               </div>
               <div class="action-bar">
                 <button type="button" class="secondary preview-button" id="previewMockButton" disabled>Preview Receipt</button>
-                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Print Ticket</button>
+                <button type="submit" class="primary update-button" id="saveMockButton" disabled>Save + Print Ticket</button>
               </div>
             </section>
           </form>
@@ -160,36 +159,39 @@
         </section>
 
         <aside class="terminal-sidebar slim-sidebar">
+          <div class="sidebar-tool-row">
+            <button type="button" class="theme-toggle sidebar-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+          </div>
           <section class="summary-card compact-card">
             <h3>Trip Info</h3>
             <div class="summary-list">
               <div><span>Last GPS</span><strong id="lastUpdate">{% if overview.latest_position %}{{ overview.latest_position.recorded_at }}{% else %}No live update yet{% endif %}</strong></div>
               <div><span>Current Origin</span><strong id="currentCoords">{{ overview.current_stop }}</strong></div>
-              <div><span>Total Boarded Today</span><strong>{{ overview.today_summary.boarded }}</strong></div>
-              <div><span>Transactions Today</span><strong>{{ overview.today_summary.transactions }}</strong></div>
+              <div><span>Total Boarded Today</span><strong id="todayBoarded">{{ overview.today_summary.boarded }}</strong></div>
+              <div><span>Transactions Today</span><strong id="todayTransactions">{{ overview.today_summary.transactions }}</strong></div>
             </div>
           </section>
 
           <section class="summary-card compact-card">
             <h3>Destination Manifest</h3>
+            <div class="manifest-list" id="destinationManifestList">
             {% if overview.destination_manifest %}
-            <div class="manifest-list">
               {% for item in overview.destination_manifest %}
               <article>
                 <strong>{{ item.name }}</strong>
                 <span>{{ item.count }} onboard</span>
               </article>
               {% endfor %}
-            </div>
             {% else %}
             <p class="muted">No saved passengers are pending for the downstream stops yet.</p>
             {% endif %}
+            </div>
           </section>
 
           <section class="summary-card compact-card">
             <h3>Recent Tickets</h3>
+            <div class="record-list" id="recentTicketList">
             {% if overview.recent_transactions %}
-            <div class="record-list">
               {% for row in overview.recent_transactions %}
               <article>
                 <strong>{{ row.origin_stop or row.stop_name }} to {{ row.destination_stop or 'Open destination' }}</strong>
@@ -197,10 +199,10 @@
                 <p>{{ row.passenger_type|title }} passenger · PHP {{ '%.0f'|format(row.fare_amount or 0) }}</p>
               </article>
               {% endfor %}
-            </div>
             {% else %}
             <p class="muted">No saved tickets yet.</p>
             {% endif %}
+            </div>
           </section>
         </aside>
       </div>
@@ -224,7 +226,7 @@
       "routeEnd": {{ overview.active_trip.end_point|tojson }}
     }
   </script>
-  <script src="{{ url_for('static', filename='js/conductor.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/conductor.js') }}?v=theme-icon-1"></script>
   {% endif %}
 </body>
 </html>

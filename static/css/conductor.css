@@ -28,6 +28,12 @@
 
 * { box-sizing: border-box; }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Outfit", sans-serif;
@@ -38,23 +44,61 @@ body {
     var(--bg);
 }
 
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+p,
+strong,
+span,
+a {
+  overflow-wrap: anywhere;
+}
+
 .theme-toggle {
+  width: 48px;
+  height: 48px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
-  border-radius: 999px;
-  padding: 11px 14px;
+  border-radius: 16px;
+  padding: 0;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.theme-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
 }
 
 .floating-theme-toggle {
   position: fixed;
   bottom: 22px;
-  right: 24px;
+  left: 24px;
   z-index: 4000;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+
+.sidebar-theme-toggle {
+  position: static;
+  box-shadow: none;
+}
+
+.sidebar-tool-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .conductor-shell {
@@ -228,6 +272,14 @@ body {
   gap: 18px;
 }
 
+.setup-panel > *,
+.terminal-top > *,
+.terminal-main > *,
+.ticket-terminal > *,
+.summary-card > * {
+  min-width: 0;
+}
+
 .terminal-top {
   display: grid;
   grid-template-columns: 1fr 0.75fr;
@@ -274,7 +326,8 @@ body {
 
 .ticket-terminal {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+  align-content: start;
 }
 
 .terminal-head,
@@ -283,6 +336,14 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+}
+
+.terminal-head {
+  margin-bottom: 2px;
+}
+
+.terminal-head p {
+  margin-bottom: 0;
 }
 
 .printer-compat {
@@ -418,6 +479,8 @@ body {
 .offboard-form {
   display: flex;
   justify-content: flex-start;
+  align-items: center;
+  margin-top: 0;
 }
 
 .update-button,
@@ -452,6 +515,16 @@ body {
 .terminal-stop {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  margin-top: 0;
+}
+
+.offboard-form .secondary,
+.terminal-stop .secondary {
+  width: auto;
+  min-width: 280px;
+  min-height: 58px;
+  padding: 13px 18px;
 }
 
 .slim-sidebar {
@@ -534,8 +607,17 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .trip-banner,
+  .ticket-terminal,
+  .summary-card,
+  .setup-panel,
+  .setup-card {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
   .floating-theme-toggle {
-    right: 14px;
+    left: 14px;
     bottom: 14px;
   }
 }
@@ -554,5 +636,44 @@ body {
 
   .action-bar {
     flex-direction: column;
+  }
+
+  .conductor-shell {
+    padding: 10px;
+  }
+
+  .conductor-topbar,
+  .terminal-head,
+  .section-title-row,
+  .summary-list div {
+    gap: 10px;
+  }
+
+  .trip-banner,
+  .ticket-terminal,
+  .summary-card,
+  .setup-panel,
+  .setup-card {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .logout-button,
+  .setup-card button,
+  .action-bar .secondary,
+  .action-bar .update-button,
+  .action-bar .preview-button {
+    width: 100%;
+  }
+
+  .offboard-form,
+  .terminal-stop {
+    width: auto;
+  }
+
+  .offboard-form .secondary,
+  .terminal-stop .secondary {
+    width: 100%;
+    min-width: 0;
   }
 }

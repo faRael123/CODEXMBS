@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 </head>
 <body class="tracker-terminal-body" data-start-trip-url="{{ url_for('start_trip') }}" data-end-trip-url="{{ url_for('end_trip') }}" data-driver-location-url="{{ url_for('driver_location') }}" data-csrf-token="{{ csrf_token() }}">
-  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode">Dark Mode</button>
+  <button type="button" class="theme-toggle floating-theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
   <main class="tracker-terminal">
     <section class="tracker-hero">
       <div class="brand-lockup compact">

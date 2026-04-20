@@ -18,6 +18,12 @@
 
 * { box-sizing: border-box; }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Outfit", sans-serif;
@@ -27,21 +33,49 @@ body {
     var(--bg);
 }
 
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+p,
+strong,
+span,
+a {
+  overflow-wrap: anywhere;
+}
+
 .theme-toggle {
+  width: 48px;
+  height: 48px;
   border: 1px solid var(--line);
   background: #17202c;
   color: var(--ink);
-  border-radius: 999px;
-  padding: 11px 14px;
+  border-radius: 16px;
+  padding: 0;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.theme-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
 }
 
 .floating-theme-toggle {
   position: fixed;
   bottom: 22px;
-  right: 24px;
+  left: 24px;
   z-index: 4000;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
 }
@@ -112,6 +146,13 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   gap: 20px;
+}
+
+.driver-grid > *,
+.tracker-meta-grid > *,
+.tracker-terminal-grid > *,
+.tracker-telemetry-grid > * {
+  min-width: 0;
 }
 
 .driver-footer-actions {
@@ -358,5 +399,35 @@ body {
   }
   .tracker-footer-actions {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 560px) {
+  .driver-shell,
+  .tracker-terminal {
+    padding: 12px;
+  }
+
+  .driver-topbar,
+  .panel-head,
+  .button-row,
+  .driver-footer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .setup-panel,
+  .metric-card,
+  .tracker-hero,
+  .tracker-terminal-card {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .logout-button,
+  .primary,
+  .tracker-entry-link {
+    width: 100%;
+    text-align: center;
   }
 }
