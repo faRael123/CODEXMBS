@@ -2587,7 +2587,11 @@ def build_trip_audit_summary(conn, limit=50, start_date=None, end_date=None):
             SELECT
                 tr.trip_id,
                 COUNT(*) AS crowd_updates,
-                (ARRAY_AGG(tr.stop_name ORDER BY tr.recorded_at DESC, tr.id DESC))[1] AS latest_stop
+                SUBSTRING_INDEX(
+                    GROUP_CONCAT(tr.stop_name ORDER BY tr.recorded_at DESC, tr.id DESC SEPARATOR '||'),
+                    '||',
+                    1
+                ) AS latest_stop
             FROM trip_records tr
             GROUP BY tr.trip_id
         ) rec ON rec.trip_id = t.id
@@ -3300,7 +3304,7 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
             SELECT DATE(recorded_at) AS day,
                    COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
             FROM trip_transactions
-            WHERE DATE(recorded_at) >= (%s::date - INTERVAL '6 days')
+            WHERE DATE(recorded_at) >= DATE_SUB(%s, INTERVAL 6 DAY)
             GROUP BY DATE(recorded_at)
             ORDER BY DATE(recorded_at)
             """,
@@ -3313,12 +3317,12 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
         dict(row)
         for row in conn.execute(
             """
-            SELECT TO_CHAR(recorded_at, 'HH24:00') AS hour_label,
+            SELECT CONCAT(LPAD(HOUR(recorded_at), 2, '0'), ':00') AS hour_label,
                    COALESCE(SUM(CASE WHEN event_type = 'board' THEN quantity ELSE 0 END), 0) AS total
             FROM trip_transactions
             WHERE DATE(recorded_at) = ?
-            GROUP BY EXTRACT(HOUR FROM recorded_at), TO_CHAR(recorded_at, 'HH24:00')
-            ORDER BY EXTRACT(HOUR FROM recorded_at)
+            GROUP BY HOUR(recorded_at)
+            ORDER BY HOUR(recorded_at)
             """,
             (today,),
         ).fetchall()
@@ -3335,7 +3339,7 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
             COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'senior' THEN quantity ELSE 0 END), 0) AS senior,
             COALESCE(SUM(CASE WHEN event_type = 'board' AND passenger_type = 'regular' THEN quantity ELSE 0 END), 0) AS regular
         FROM trip_transactions
-        WHERE DATE(recorded_at) >= (%s::date - INTERVAL '6 days')
+        WHERE DATE(recorded_at) >= DATE_SUB(%s, INTERVAL 6 DAY)
         """,
         (today,),
     ).fetchone()
@@ -4552,10 +4556,10 @@ def admin_dashboard():
                                 route_id, origin_stop, destination_stop, regular_fare, discounted_fare, created_at, updated_at
                             )
                             VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT (route_id, origin_stop, destination_stop) DO UPDATE SET
-                                regular_fare = EXCLUDED.regular_fare,
-                                discounted_fare = EXCLUDED.discounted_fare,
-                                updated_at = EXCLUDED.updated_at
+                            ON DUPLICATE KEY UPDATE
+                                regular_fare = VALUES(regular_fare),
+                                discounted_fare = VALUES(discounted_fare),
+                                updated_at = VALUES(updated_at)
                             """,
                             (
                                 route_id,
@@ -4599,10 +4603,10 @@ def admin_dashboard():
                             route_id, origin_stop, destination_stop, regular_fare, discounted_fare, created_at, updated_at
                         )
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT (route_id, origin_stop, destination_stop) DO UPDATE SET
-                            regular_fare = EXCLUDED.regular_fare,
-                            discounted_fare = EXCLUDED.discounted_fare,
-                            updated_at = EXCLUDED.updated_at
+                        ON DUPLICATE KEY UPDATE
+                            regular_fare = VALUES(regular_fare),
+                            discounted_fare = VALUES(discounted_fare),
+                            updated_at = VALUES(updated_at)
                         """,
                         (
                             route_id,
