@@ -1251,6 +1251,9 @@ def build_admin_pdf_report(overview):
     def pdf_cell(value, style=table_body_style):
         return Paragraph(escape(str(value or "")), style)
 
+    def pdf_text(value):
+        return escape(str(value or ""))
+
     story.append(Paragraph("Gajoda Transportation Services", title_style))
     story.append(Paragraph("Crowd Analytics Report", styles["Heading2"]))
     story.append(Paragraph(f"Generated: {now().strftime('%B %d, %Y %I:%M %p')}", subtitle_style))
@@ -1312,7 +1315,7 @@ def build_admin_pdf_report(overview):
 
     story.append(Paragraph("AI Insights", styles["Heading3"]))
     for insight in overview["insights"]:
-        story.append(Paragraph(f"<b>{insight['title']}</b>: {insight['body']}", styles["BodyText"]))
+        story.append(Paragraph(f"<b>{pdf_text(insight['title'])}</b>: {pdf_text(insight['body'])}", styles["BodyText"]))
         story.append(Spacer(1, 0.08 * inch))
 
     story.append(Spacer(1, 0.12 * inch))
@@ -1413,7 +1416,7 @@ def build_admin_pdf_report(overview):
         for bus in overview["bus_report_sections"]:
             story.append(
                 Paragraph(
-                    f"{bus['plate_number']} | Status: {bus['status']} / {bus['trip_status']} | Route: {bus['route_name']}",
+                    f"{pdf_text(bus['plate_number'])} | Status: {pdf_text(bus['status'])} / {pdf_text(bus['trip_status'])} | Route: {pdf_text(bus['route_name'])}",
                     styles["Heading4"],
                 )
             )
@@ -1568,6 +1571,95 @@ def build_admin_pdf_report(overview):
             )
         )
         story.append(log_table)
+
+    document.build(story)
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+
+# Generate a compact PDF if the full report renderer hits a layout or data issue.
+def build_admin_pdf_report_fallback(overview, error_message=""):
+    """Generate a minimal admin PDF report that avoids complex layout sections."""
+    pdf_buffer = BytesIO()
+    document = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=landscape(A4),
+        rightMargin=32,
+        leftMargin=32,
+        topMargin=32,
+        bottomMargin=32,
+    )
+    styles = getSampleStyleSheet()
+    story = []
+
+    def safe_text(value):
+        return escape(str(value or ""))
+
+    story.append(Paragraph("Gajoda Transportation Services", styles["Heading1"]))
+    story.append(Paragraph("Crowd Analytics Report", styles["Heading2"]))
+    story.append(Paragraph(f"Generated: {now().strftime('%B %d, %Y %I:%M %p')}", styles["Normal"]))
+    story.append(Spacer(1, 0.2 * inch))
+
+    if error_message:
+        story.append(
+            Paragraph(
+                "The detailed PDF layout could not be rendered, so this compact export was generated instead.",
+                styles["BodyText"],
+            )
+        )
+        story.append(Spacer(1, 0.12 * inch))
+
+    audit_summary = overview.get("audit_summary") or {}
+    summary_rows = [
+        ["Metric", "Value", "Metric", "Value"],
+        ["Passengers Today", str(overview.get("today_total", 0)), "Trips Today", str(overview.get("trips_today", 0))],
+        ["Active Live Buses", str(overview.get("active_bus_count", 0)), "Average Load", f"{overview.get('avg_crowd', 0)}%"],
+        ["High Crowd Trips", str(overview.get("high_crowd_count", 0)), "Peak Hour", f"{overview.get('peak_hour_label', 'N/A')} ({overview.get('peak_hour_value', 0)})"],
+        ["Trips in Audit", str(audit_summary.get("trip_count", 0)), "Completed Trips", str(audit_summary.get("completed_trip_count", 0))],
+        ["Total Boarded", str(audit_summary.get("total_boarded", 0)), "Total Revenue", f"PHP {audit_summary.get('total_revenue', 0):.2f}"],
+    ]
+    summary_table = Table(summary_rows, colWidths=[1.7 * inch, 1.2 * inch, 1.7 * inch, 1.5 * inch], repeatRows=1)
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D60000")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+                ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#dbe2ea")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("PADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.append(summary_table)
+    story.append(Spacer(1, 0.22 * inch))
+
+    story.append(Paragraph("Route Summary", styles["Heading3"]))
+    route_rows = [["Route", "Trips", "Passengers", "Avg Load %"]]
+    for row in overview.get("route_rows", [])[:20]:
+        route_rows.append(
+            [
+                safe_text(row.get("route_name")),
+                safe_text(row.get("trip_count")),
+                safe_text(row.get("passengers")),
+                safe_text(f"{row.get('avg_load_percent', 0)}%"),
+            ]
+        )
+    if len(route_rows) == 1:
+        route_rows.append(["No route records in this reporting window.", "", "", ""])
+    route_table = Table(route_rows, colWidths=[3.2 * inch, 1.0 * inch, 1.1 * inch, 1.0 * inch], repeatRows=1)
+    route_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fee2e2")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#7f1d1d")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dbe2ea")),
+                ("PADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    story.append(route_table)
 
     document.build(story)
     pdf_buffer.seek(0)
@@ -4806,7 +4898,11 @@ def admin_report():
     )
     conn.close()
 
-    output = build_admin_pdf_report(overview)
+    try:
+        output = build_admin_pdf_report(overview)
+    except Exception as exc:
+        app.logger.exception("Admin PDF report export failed; serving compact fallback PDF.")
+        output = build_admin_pdf_report_fallback(overview, str(exc))
     return Response(
         output.getvalue(),
         mimetype="application/pdf",
