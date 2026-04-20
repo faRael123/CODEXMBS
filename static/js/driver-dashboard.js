@@ -73,13 +73,17 @@
           clearInterval(locationPollId);
           locationPollId = null;
         }
-        const response = await fetch(driverEndpoints.endTripUrl, { method: 'POST', headers: csrfHeaders });
-        const result = await response.json();
-        if (result.success) {
-          window.location.reload();
-          return;
+        try {
+          const response = await fetch(driverEndpoints.endTripUrl, { method: 'POST', headers: csrfHeaders });
+          const result = await response.json().catch(() => ({}));
+          if (response.ok && result.success) {
+            window.location.reload();
+            return;
+          }
+          alert(result.error || `Could not end trip. Server returned ${response.status}.`);
+        } catch (error) {
+          alert('Could not end trip. Check your connection and try again.');
         }
-        alert(result.error || 'Could not end trip.');
       });
     }
 

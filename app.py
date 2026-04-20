@@ -1950,7 +1950,8 @@ def require_role(role_name):
 
             current_role = user["role"]
             session["role"] = current_role
-            if current_role != role_name:
+            allowed_roles = {role_name} if isinstance(role_name, str) else set(role_name)
+            if current_role not in allowed_roles:
                 return redirect(url_for(role_home_endpoint(current_role)))
 
             return view(*args, **kwargs)
@@ -4793,7 +4794,7 @@ def api_admin_bus_cameras(bus_id):
 
 
 @app.route("/admin/report.pdf")
-@require_role("admin")
+@require_role({"admin", "super_admin"})
 # Download the current admin analytics report as a PDF file.
 def admin_report():
     """Download the current admin analytics report as a PDF file."""
@@ -4909,6 +4910,23 @@ def end_trip():
     if not trip:
         conn.close()
         return jsonify({"error": "No active trip found."}), 400
+
+    if trip.get("conductor_id"):
+        conductor = conn.execute(
+            "SELECT full_name FROM users WHERE id = ?",
+            (trip["conductor_id"],),
+        ).fetchone()
+        conductor_name = conductor["full_name"] if conductor else "the assigned conductor"
+        conn.close()
+        return jsonify(
+            {
+                "error": (
+                    f"Cannot end this trip yet because {conductor_name} still has the conductor terminal "
+                    "attached to this bus. Ask the conductor to stop monitoring/end their terminal first, "
+                    "then try End Trip again."
+                )
+            }
+        ), 409
 
     started_at = from_db_time(trip["started_at"])
     duration_minutes = int(max((now() - started_at).total_seconds(), 0) // 60) if started_at else trip["duration_minutes"]
