@@ -1192,15 +1192,20 @@ def derive_trip_location_label(trip, latitude, longitude):
 # Render a chart as an in-memory PNG image for PDF reports.
 def render_chart_image(title, labels, values, chart_type="bar", color="#D60000"):
     """Render a chart as an in-memory PNG image for PDF reports."""
+    labels = [str(label or "") for label in labels]
+    values = [float(value or 0) for value in values]
+    x_positions = list(range(len(labels)))
     figure, axis = plt.subplots(figsize=(6.8, 2.8))
     axis.set_title(title, fontsize=12, fontweight="bold")
 
     if chart_type == "line":
-        axis.plot(labels, values, color=color, linewidth=2.5, marker="o", markersize=4)
-        axis.fill_between(labels, values, color=color, alpha=0.12)
+        axis.plot(x_positions, values, color=color, linewidth=2.5, marker="o", markersize=4)
+        axis.fill_between(x_positions, values, color=color, alpha=0.12)
     else:
-        axis.bar(labels, values, color=color, alpha=0.9)
+        axis.bar(x_positions, values, color=color, alpha=0.9)
 
+    axis.set_xticks(x_positions)
+    axis.set_xticklabels(labels)
     axis.grid(axis="y", linestyle="--", linewidth=0.6, alpha=0.35)
     axis.spines["top"].set_visible(False)
     axis.spines["right"].set_visible(False)
@@ -1247,9 +1252,13 @@ def build_admin_pdf_report(overview):
     table_body_style = styles["BodyText"].clone("table_body_style")
     table_body_style.fontSize = 7
     table_body_style.leading = 8
+    table_body_style.wordWrap = "CJK"
 
-    def pdf_cell(value, style=table_body_style):
-        return Paragraph(escape(str(value or "")), style)
+    def pdf_cell(value, style=table_body_style, max_length=120):
+        text = str(value or "")
+        if max_length and len(text) > max_length:
+            text = f"{text[: max_length - 3]}..."
+        return Paragraph(escape(text), style)
 
     def pdf_text(value):
         return escape(str(value or ""))
