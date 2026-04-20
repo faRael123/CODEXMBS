@@ -2852,41 +2852,53 @@ def build_staff_attendance(conn, limit=25):
 
 def build_admin_password_reset_alerts(conn, limit=5):
     """Return unread password reset notifications for admin attention."""
-    rows = conn.execute(
-        """
-        SELECT
-            n.id,
-            n.created_at,
-            n.title,
-            n.message AS description,
-            n.status,
-            u.full_name,
-            u.email,
-            u.role
-        FROM admin_notifications n
-        LEFT JOIN users u ON u.id = n.user_id
-        WHERE n.notification_type = ? AND n.status = 'unread'
-        ORDER BY n.created_at DESC, n.id DESC
-        LIMIT ?
-        """,
-        (PASSWORD_RESET_NOTIFICATION_TYPE, limit),
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                n.id,
+                n.created_at,
+                n.title,
+                n.message AS description,
+                n.status,
+                u.full_name,
+                u.email,
+                u.role
+            FROM admin_notifications n
+            LEFT JOIN users u ON u.id = n.user_id
+            WHERE n.notification_type = ? AND n.status = 'unread'
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT ?
+            """,
+            (PASSWORD_RESET_NOTIFICATION_TYPE, limit),
+        ).fetchall()
+    except Exception as exc:
+        if "admin_notifications" not in str(exc):
+            raise
+        conn.rollback()
+        return []
     return [dict(row) for row in rows]
 
 
 def build_admin_operation_notifications(conn, limit=8):
     """Return unread internal operations notifications for admin monitoring."""
     placeholders = ", ".join(["?"] * len(ADMIN_OPERATION_NOTIFICATION_TYPES))
-    rows = conn.execute(
-        f"""
-        SELECT id, notification_type, title, message AS description, status, created_at
-        FROM admin_notifications
-        WHERE notification_type IN ({placeholders}) AND status = 'unread'
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-        """,
-        (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES), limit),
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT id, notification_type, title, message AS description, status, created_at
+            FROM admin_notifications
+            WHERE notification_type IN ({placeholders}) AND status = 'unread'
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*sorted(ADMIN_OPERATION_NOTIFICATION_TYPES), limit),
+        ).fetchall()
+    except Exception as exc:
+        if "admin_notifications" not in str(exc):
+            raise
+        conn.rollback()
+        return []
     return [dict(row) for row in rows]
 
 
@@ -3279,9 +3291,6 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
     archived_service_alerts = get_archived_service_alerts(conn)
     password_reset_alerts = build_admin_password_reset_alerts(conn)
     operation_notifications = build_admin_operation_notifications(conn)
-    fare_matrix_rows = build_fare_matrix_rows(conn)
-    fare_route_options, fare_stop_options = build_fare_matrix_options(conn)
-    fare_matrix_editor = build_fare_matrix_editor(conn)
     user_rows = build_user_directory(conn)
 
     peak_hour_label = hourly_labels[0]
@@ -3311,10 +3320,10 @@ def build_admin_overview(conn, report_start_date=None, report_end_date=None):
         "archived_service_alerts": archived_service_alerts,
         "password_reset_alerts": password_reset_alerts,
         "operation_notifications": operation_notifications,
-        "fare_matrix_rows": fare_matrix_rows,
-        "fare_route_options": fare_route_options,
-        "fare_stop_options": fare_stop_options,
-        "fare_matrix_editor": fare_matrix_editor,
+        "fare_matrix_rows": [],
+        "fare_route_options": [],
+        "fare_stop_options": [],
+        "fare_matrix_editor": [],
         "stop_rows": stop_rows,
         "recent_transaction_audit": recent_transaction_audit,
         "trip_audit_rows": trip_audit_rows,
