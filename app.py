@@ -573,6 +573,8 @@ def get_trip_current_stop_details(trip, latest_gps=None, fallback_stop_name=None
         nearest_distance = distance_between_points_km(latitude, longitude, nearest_stop["lat"], nearest_stop["lng"])
         if nearest_distance <= STOP_PASS_RADIUS_KM:
             return nearest_stop
+        if fallback_stop_name is None:
+            return None
 
     fallback_index = find_stop_index(route_stops, fallback_stop_name)
     if fallback_index >= 0:
@@ -3448,10 +3450,17 @@ def build_driver_overview(conn, driver_id):
             latest_record["stop_name"] if latest_record else None,
         )
 
+        if current_stop_details:
+            next_stop = current_stop_details["name"]
+        elif latest_gps and latest_gps["latitude"] is not None and latest_gps["longitude"] is not None:
+            next_stop = derive_trip_location_label(active_trip, float(latest_gps["latitude"]), float(latest_gps["longitude"]))
+        else:
+            next_stop = "Waiting for GPS location"
+
         trip_metrics = {
             "occupancy": active_trip["occupancy"],
             "capacity": active_trip["capacity"],
-            "next_stop": current_stop_details["name"] if current_stop_details else active_trip["end_point"],
+            "next_stop": next_stop,
             "trip_duration": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
             "crowd_level": classify_capacity(active_trip["occupancy"], active_trip["capacity"]),
             "updates_count": conn.execute("SELECT COUNT(*) AS total_count FROM trip_records WHERE trip_id = ?", (active_trip["id"],)).fetchone()["total_count"],
@@ -4953,11 +4962,24 @@ def driver_location():
         conn.close()
         return jsonify({"error": coordinate_error}), 400
 
-    record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
+    current_stop_details = record_trip_gps_location(conn, trip, latitude, longitude, trip.get("conductor_id"))
+    current_stop = (
+        current_stop_details["name"]
+        if current_stop_details
+        else derive_trip_location_label(trip, latitude, longitude)
+    )
     conn.commit()
     broadcast_live_tracking_update(conn)
     conn.close()
-    return jsonify({"success": True})
+    return jsonify(
+        {
+            "success": True,
+            "current_stop": current_stop,
+            "latitude": latitude,
+            "longitude": longitude,
+            "recorded_at": normalize_json_value(to_db_time(now())),
+        }
+    )
 
 
 @app.route("/conductor/location", methods=["POST"])

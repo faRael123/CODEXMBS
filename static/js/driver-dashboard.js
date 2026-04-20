@@ -8,6 +8,9 @@
     const trackingBtn = document.getElementById('trackingBtn');
     const trackingStatus = document.getElementById('trackingStatus');
     const gpsState = document.getElementById('gpsState');
+    const gpsDetail = document.getElementById('gpsDetail');
+    const currentStopValue = document.getElementById('currentStopValue');
+    const currentStopDetail = document.getElementById('currentStopDetail');
     const LOCATION_REFRESH_MS = 3000;
     const MIN_LOCATION_SEND_MS = 2500;
     const GEO_OPTIONS = {
@@ -19,6 +22,24 @@
     let locationPollId = null;
     let locationPushInFlight = false;
     let lastLocationSentAt = 0;
+
+    function parseServerTime(value) {
+      if (!value) {
+        return null;
+      }
+      const normalized = String(value).trim().replace(' ', 'T');
+      const date = new Date(`${normalized}Z`);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function formatServerTime(value) {
+      const date = parseServerTime(value);
+      return date ? date.toLocaleString() : value;
+    }
+
+    document.querySelectorAll('[data-local-time]').forEach((node) => {
+      node.textContent = formatServerTime(node.dataset.localTime || node.textContent);
+    });
 
     if (startTripForm) {
       startTripForm.addEventListener('submit', async (event) => {
@@ -63,9 +84,12 @@
     }
 
     if (activeTrip && activeTrip.started_at) {
-      const startTime = new Date(activeTrip.started_at.replace(' ', 'T'));
+      const startTime = parseServerTime(activeTrip.started_at);
       const durationNode = document.getElementById('tripDuration');
       const updateDuration = () => {
+        if (!startTime) {
+          return;
+        }
         const elapsed = Math.max(0, Date.now() - startTime.getTime());
         const hours = String(Math.floor(elapsed / 3600000)).padStart(2, '0');
         const minutes = String(Math.floor((elapsed % 3600000) / 60000)).padStart(2, '0');
@@ -131,7 +155,17 @@
         const result = await pushLocation(position.coords.latitude, position.coords.longitude);
         if (result.success) {
           lastLocationSentAt = Date.now();
-          setTrackingStatus(`GPS active. Last update: ${new Date().toLocaleTimeString()}`);
+          const sentAt = new Date().toLocaleTimeString();
+          setTrackingStatus(`GPS active. Last update: ${sentAt}`);
+          if (gpsDetail) {
+            gpsDetail.textContent = `Last GPS log: ${sentAt}`;
+          }
+          if (currentStopValue && result.current_stop) {
+            currentStopValue.textContent = result.current_stop;
+          }
+          if (currentStopDetail && Number.isFinite(Number(result.latitude)) && Number.isFinite(Number(result.longitude))) {
+            currentStopDetail.textContent = `${Number(result.latitude).toFixed(6)}, ${Number(result.longitude).toFixed(6)}`;
+          }
         } else {
           setTrackingStatus(result.error || 'Location update failed.', true);
         }

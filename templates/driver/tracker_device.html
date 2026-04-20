@@ -37,7 +37,7 @@
         <article class="tracker-meta-card">
           <span>GPS State</span>
           <strong id="gpsStateLabel">{{ 'Ready to transmit' if overview.active_trip else 'Standby' }}</strong>
-          <small id="gpsDetail">{% if overview.trip_metrics.last_gps_at %}Last GPS log {{ overview.trip_metrics.last_gps_at }}{% else %}No GPS fix has been submitted yet.{% endif %}</small>
+          <small id="gpsDetail">{% if overview.trip_metrics.last_gps_at %}Last GPS log <span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}No GPS fix has been submitted yet.{% endif %}</small>
         </article>
       </div>
     </section>
@@ -53,7 +53,7 @@
         <div class="trip-status live tracker-live-status">
           <strong id="activeTripPlate">{{ overview.active_trip.plate_number }}</strong>
           <span id="activeTripRoute">{{ overview.active_trip.route_name }}</span>
-          <small>Trip started at {{ overview.active_trip.started_at }}</small>
+          <small>Trip started at <span data-local-time="{{ overview.active_trip.started_at }}">{{ overview.active_trip.started_at }}</span></small>
         </div>
         <div class="status-strip">
           <span class="status-chip active">Live trip</span>
@@ -125,7 +125,7 @@
           </article>
           <article class="metric-card tracker-metric">
             <span>Last Sent</span>
-            <strong id="lastSentValue">{{ overview.trip_metrics.last_gps_at or '--' }}</strong>
+            <strong id="lastSentValue">{% if overview.trip_metrics.last_gps_at %}<span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}--{% endif %}</strong>
             <small>Server acknowledgement time for the last update.</small>
           </article>
           <article class="metric-card tracker-metric">

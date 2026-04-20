@@ -38,7 +38,7 @@
         <div class="trip-status live">
           <strong>{{ overview.active_trip.plate_number }}</strong>
           <span>{{ overview.active_trip.route_name }}</span>
-          <small>Started at {{ overview.active_trip.started_at }}</small>
+          <small>Started at <span data-local-time="{{ overview.active_trip.started_at }}">{{ overview.active_trip.started_at }}</span></small>
         </div>
         <div class="status-strip">
           <span class="status-chip active">Trip Active</span>
@@ -89,7 +89,7 @@
           <article class="metric-card">
             <span>GPS Status</span>
             <strong id="gpsState">{{ 'Ready to transmit' if overview.active_trip else 'Waiting for trip start' }}</strong>
-            <small>{% if overview.trip_metrics.last_gps_at %}Last GPS log: {{ overview.trip_metrics.last_gps_at }}{% else %}No GPS update has been sent yet.{% endif %}</small>
+            <small id="gpsDetail">{% if overview.trip_metrics.last_gps_at %}Last GPS log: <span data-local-time="{{ overview.trip_metrics.last_gps_at }}">{{ overview.trip_metrics.last_gps_at }}</span>{% else %}No GPS update has been sent yet.{% endif %}</small>
           </article>
           <article class="metric-card">
             <span>Trip Duration</span>
@@ -98,8 +98,8 @@
           </article>
           <article class="metric-card">
             <span>Current Stop</span>
-            <strong>{{ overview.trip_metrics.next_stop }}</strong>
-            <small>Nearest corridor stop based on the latest trip GPS update.</small>
+            <strong id="currentStopValue">{{ overview.trip_metrics.next_stop }}</strong>
+            <small id="currentStopDetail">Nearest corridor stop based on the latest trip GPS update.</small>
           </article>
         </div>
       </article>

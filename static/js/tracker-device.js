@@ -31,6 +31,24 @@
     let lastLocationSentAt = 0;
     let wakeLock = null;
 
+    function parseServerTime(value) {
+      if (!value) {
+        return null;
+      }
+      const normalized = String(value).trim().replace(' ', 'T');
+      const date = new Date(`${normalized}Z`);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function formatServerTime(value) {
+      const date = parseServerTime(value);
+      return date ? date.toLocaleString() : value;
+    }
+
+    document.querySelectorAll('[data-local-time]').forEach((node) => {
+      node.textContent = formatServerTime(node.dataset.localTime || node.textContent);
+    });
+
     function setTrackingStatus(message, isError = false) {
       if (trackingStatus) {
         trackingStatus.textContent = message;
